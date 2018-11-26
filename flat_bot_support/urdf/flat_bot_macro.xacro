@@ -186,18 +186,18 @@
     </joint>
     
     <joint name="${prefix}latch_a_joint" type="revolute">
-      <origin xyz="0.0565 0.021472 0.038" rpy="0 0 ${-pi/4}"/>
+      <origin xyz="0.043857 0.018472 0.038" rpy="0 0 ${(3*pi)/4}"/>
       <parent link="${prefix}sirom_a_link"/>
       <child link="${prefix}sirom_a_latch"/>
       <axis xyz="0 0 1"/>
-      <limit lower="-0.2" upper="${pi}" effort="100" velocity="${(2*pi)+0.2}"/>
+      <limit lower="${-pi-0.2}" upper="${0.2}" effort="100" velocity="${(2*pi)}"/>
     </joint>
     <joint name="${prefix}latch_b_joint" type="revolute">
       <origin xyz="0.0565 -0.021472 0.038" rpy="0 0 ${(3*pi)/4}"/>
       <parent link="${prefix}sirom_b_link"/>
       <child link="${prefix}sirom_b_latch"/>
       <axis xyz="0 0 1"/>
-      <limit lower="-0.2" upper="${pi}" effort="100" velocity="${(2*pi)+0.2}"/>
+      <limit lower="-0.2" upper="${pi+0.2}" effort="100" velocity="${(2*pi)}"/>
     </joint>
 
     <!-- transform from the standard SIROM frame to the sirom_b link -->

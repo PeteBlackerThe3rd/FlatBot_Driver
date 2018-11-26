@@ -6,6 +6,29 @@
   <static>true</static>
   
     <!-- links: main serial chain -->
+    <link name="${prefix}track_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://flat_bot_support/meshes/visual/four_sirom_track.stl" />
+        </geometry>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://flat_bot_support/meshes/visual/four_sirom_track.stl" />
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.523" />
+        <origin xyz="0.080698 -0.600207 0.025679" rpy="0 -0.0211184839491314 0" />
+        <inertia
+          ixx="0.822090658" ixy="0.0" ixz="0.0"
+          iyy="0.004754978" iyz="0.0"
+          izz="0.824462923" />
+      </inertial>
+    </link>
+    
     <link name="${prefix}sirom_a_link">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -28,6 +51,12 @@
           izz="0.001015708" />
       </inertial>
     </link>
+    
+    <joint name="temp_joint" type="fixed">
+      <origin xyz="-0.20 0 0" rpy="0 0 0"/>
+      <parent link="${prefix}track_link"/>
+      <child link="${prefix}sirom_a_link"/>
+    </joint>
 
   </xacro:macro>
 </robot>
