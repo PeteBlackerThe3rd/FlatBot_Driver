@@ -1,0 +1,8 @@
+prefix=/home/alex/Y3P/catkin_workspace/src/pub_sub/build/devel
+
+Name: pub_sub
+Description: Description of pub_sub
+Version: 0.0.0
+Cflags: 
+Libs: -L/home/alex/Y3P/catkin_workspace/src/pub_sub/build/devel/lib 
+Requires: 

@@ -1,0 +1,8 @@
+prefix=/usr/local
+
+Name: pub_sub
+Description: Description of pub_sub
+Version: 0.0.0
+Cflags: 
+Libs: -L/usr/local/lib 
+Requires: 

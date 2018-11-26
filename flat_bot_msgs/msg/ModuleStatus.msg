@@ -9,7 +9,7 @@
 #--------------------------------------
 
 # header defines current timestamp and module_id
-header Header
+Header header
 
 # seconds since this module last booted up
 float32 uptime
