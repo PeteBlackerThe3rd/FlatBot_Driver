@@ -1,0 +1,9 @@
+<launch>
+	<param name="module_description_three_way"
+      command="$(find xacro)/xacro --inorder $(find assembly_control)/urdf/three_way.xacro" />
+  
+    <!-- joint_state_controller -->
+    <rosparam file="$(find assembly_control)/config/test_setup.yaml" command="load"/>
+    
+    <node name="module_manager" pkg="assembly_control" type="modman_node" output="screen" />
+</launch>

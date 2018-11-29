@@ -1,0 +1,19 @@
+# test module setup for the initial assembly simulations
+modules:
+ - id: sat_bus
+   type: three_way
+   root: true
+ - id: module_a
+   type: three_way
+   root: false
+   connections:
+    - child_module: sat_bus
+      parent_connector: 0
+      child_connector: 0
+ - id: module_b
+   type: three_way
+   root: false
+   connections:
+    - child_module: sat_bus
+      parent_connector: 0
+      child_connector: 2

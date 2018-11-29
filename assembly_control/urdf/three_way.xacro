@@ -1,0 +1,95 @@
+<?xml version='1.0'?>
+<robot name="FreeLunar_Sled_Empty">
+  <link name='chassis'>
+    <collision name='collision'>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://fluna_gazebo/meshes/RoRo_Sled_V0_1.stl" />
+      </geometry>
+      <surface>
+        <bounce>
+          <restitution_coefficient>0.35</restitution_coefficient>
+          <threshold>0.025</threshold>
+        </bounce>
+      </surface>
+    </collision>
+
+    <visual name='visual'>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://fluna_gazebo/meshes/RoRo_Sled_V0_1.stl" />
+      </geometry>
+    </visual>
+
+    <inertial>
+      <mass value="4.419" />
+      <origin xyz="0.0 0.063738 0.054633" rpy="-0.1418952682 0.0 0.0" />
+      <inertia
+	  ixx="0.223047752" ixy="0.0" ixz="0.0"
+	  iyy="0.08231827" iyz="0.0"
+	  izz="0.274096609" />
+    </inertial>
+  </link>
+
+  <link name="left_wheel">
+    <collision name="collision">
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.03" />
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://fluna_gazebo/meshes/RoRo Skip Wheel_visual_low.dae" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.145" />
+      <origin xyz="0.0 0.0 -0.001687" rpy="0.0 0.0 0.0" />
+      <inertia
+	  ixx="0.000065748" ixy="0.0" ixz="0.0"
+	  iyy="0.000065207" iyz="0.0"
+	  izz="0.000058981" />
+    </inertial>
+  </link>
+
+  <joint type="continuous" name="left_wheel_joint">
+    <origin xyz="0.2 0.4 0.03" rpy="0.0 1.5707 0.0" />
+    <child link="left_wheel" />
+    <parent link="chassis" />
+    <axis xyz="0 0 -1" />
+    <dynamics damping="0.1" />
+  </joint>
+
+  <link name="right_wheel">
+    <collision name="collision">
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.03" />
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://fluna_gazebo/meshes/RoRo Skip Wheel_visual_low.dae" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.145" />
+      <origin xyz="0.0 0.0 -0.001687" rpy="0.0 0.0 0.0" />
+      <inertia
+	  ixx="0.000065748" ixy="0.0" ixz="0.0"
+	  iyy="0.000065207" iyz="0.0"
+	  izz="0.000058981" />
+    </inertial>
+  </link>
+
+  <joint type="continuous" name="right_wheel_joint">
+    <origin xyz="-0.2 0.4 0.03" rpy="0.0 -1.5707 0.0" />
+    <child link="right_wheel" />
+    <parent link="chassis" />
+    <axis xyz="0 0 1" />
+    <dynamics damping="0.1" />
+  </joint>
+</robot>

@@ -17,7 +17,8 @@ find_package(catkin REQUIRED
 			 genmsg
 			 actionlib_msgs
 			 actionlib
-			 message_generation)
+			 message_generation
+			 urdf)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS system)
