@@ -31,65 +31,26 @@
     </inertial>
   </link>
 
-  <link name="left_wheel">
-    <collision name="collision">
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-      <geometry>
-        <cylinder length="0.06" radius="0.03" />
-      </geometry>
-    </collision>
-    <visual name="visual">
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-      <geometry>
-        <mesh filename="package://fluna_gazebo/meshes/RoRo Skip Wheel_visual_low.dae" />
-      </geometry>
-    </visual>
-    <inertial>
-      <mass value="0.145" />
-      <origin xyz="0.0 0.0 -0.001687" rpy="0.0 0.0 0.0" />
-      <inertia
-	  ixx="0.000065748" ixy="0.0" ixz="0.0"
-	  iyy="0.000065207" iyz="0.0"
-	  izz="0.000058981" />
-    </inertial>
-  </link>
+  <link name="connector_0" />
+  <link name="connector_1" />
+  <link name="connector_2" />
 
-  <joint type="continuous" name="left_wheel_joint">
-    <origin xyz="0.2 0.4 0.03" rpy="0.0 1.5707 0.0" />
-    <child link="left_wheel" />
+  <joint type="fixed" name="connector_0_joint">
+    <origin xyz="0.2 0.4 0.00" rpy="0.0 0.0 1.5707" />
+    <child link="connector_0" />
     <parent link="chassis" />
-    <axis xyz="0 0 -1" />
-    <dynamics damping="0.1" />
   </joint>
 
-  <link name="right_wheel">
-    <collision name="collision">
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-      <geometry>
-        <cylinder length="0.06" radius="0.03" />
-      </geometry>
-    </collision>
-    <visual name="visual">
-      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-      <geometry>
-        <mesh filename="package://fluna_gazebo/meshes/RoRo Skip Wheel_visual_low.dae" />
-      </geometry>
-    </visual>
-    <inertial>
-      <mass value="0.145" />
-      <origin xyz="0.0 0.0 -0.001687" rpy="0.0 0.0 0.0" />
-      <inertia
-	  ixx="0.000065748" ixy="0.0" ixz="0.0"
-	  iyy="0.000065207" iyz="0.0"
-	  izz="0.000058981" />
-    </inertial>
-  </link>
-
-  <joint type="continuous" name="right_wheel_joint">
-    <origin xyz="-0.2 0.4 0.03" rpy="0.0 -1.5707 0.0" />
-    <child link="right_wheel" />
+  <joint type="fixed" name="connector_1_joint">
+    <origin xyz="0.2 0.0 0.00" rpy="0.0 0.0 0.0" />
+    <child link="connector_1" />
     <parent link="chassis" />
-    <axis xyz="0 0 1" />
-    <dynamics damping="0.1" />
   </joint>
+
+  <joint type="fixed" name="connector_2_joint">
+    <origin xyz="00.2 0.4 0.00" rpy="0.0 0.0 -1.5707" />
+    <child link="connector_2" />
+    <parent link="chassis" />
+  </joint>
+
 </robot>
