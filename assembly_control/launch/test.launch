@@ -2,8 +2,10 @@
 	<param name="module_description_three_way"
       command="$(find xacro)/xacro --inorder $(find assembly_control)/urdf/three_way.xacro" />
   
-    <!-- joint_state_controller -->
+    <!-- read the YAML file which defines the initial state of the modules -->
     <rosparam file="$(find assembly_control)/config/test_setup.yaml" command="load"/>
     
     <node name="module_manager" pkg="assembly_control" type="modman_node" output="screen" required="true" />
+    
+    <node name="viewer" pkg="rviz" type="rviz" required="true" args="-d $(find assembly_control)/config/assembly_view.rviz"/>
 </launch>

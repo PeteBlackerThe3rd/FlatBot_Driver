@@ -18,7 +18,9 @@ find_package(catkin REQUIRED
 			 actionlib_msgs
 			 actionlib
 			 message_generation
-			 urdf)
+			 urdf
+			 tf2
+			 tf2_ros)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS system)

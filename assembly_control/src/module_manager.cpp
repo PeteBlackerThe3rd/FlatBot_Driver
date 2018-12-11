@@ -8,13 +8,17 @@
 #include <vector>
 #include <string>
 #include <ros/ros.h>
-#include <tf/tf.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <tf2/transform_datatypes.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+//#include <tf/tf.h>
 #include <urdf/model.h>
 #include <stdio.h>
 
 class ModuleConnector
 {
-	tf::Transform pose;
+	tf2::Transform pose;
 };
 
 class ModuleType
@@ -24,7 +28,7 @@ public:
 
 	bool fixedJointExists(urdf::Model *model, std::string linkName);
 
-	tf::Transform getFixedJointTF(boost::shared_ptr< const urdf::Joint > joint);
+	tf2::Transform getFixedJointTF(boost::shared_ptr< const urdf::Joint > joint);
 
 	std::string name;
 
@@ -33,7 +37,7 @@ public:
 	urdf::Model urdf;
 
 	// list of connectors for the module
-	std::vector<tf::Transform> connectors;
+	std::vector<tf2::Transform> connectors;
 
 	// collision model
 };
@@ -96,7 +100,7 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 
 			//printf("Successfully found connector [%d] of module \"%s\"\n", linkNum, name.c_str());
 
-			tf::Transform connectorTF = getFixedJointTF(connectorJoint);
+			tf2::Transform connectorTF = getFixedJointTF(connectorJoint);
 			printf("made TF okay.\n"); fflush(stdout);
 			if (connectors.size() < linkNum+1)
 				connectors.resize(linkNum+1);
@@ -112,17 +116,17 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 	}
 }
 
-tf::Transform ModuleType::getFixedJointTF(boost::shared_ptr< const urdf::Joint > joint)
+tf2::Transform ModuleType::getFixedJointTF(boost::shared_ptr< const urdf::Joint > joint)
 {
-	tf::Transform linkTF;
+	tf2::Transform linkTF;
 
-	tf::Vector3 origin(joint->parent_to_joint_origin_transform.position.x,
-					   joint->parent_to_joint_origin_transform.position.y,
-					   joint->parent_to_joint_origin_transform.position.z);
-	tf::Quaternion rotation(joint->parent_to_joint_origin_transform.rotation.x,
-							joint->parent_to_joint_origin_transform.rotation.y,
-							joint->parent_to_joint_origin_transform.rotation.z,
-							joint->parent_to_joint_origin_transform.rotation.w);
+	tf2::Vector3 origin(joint->parent_to_joint_origin_transform.position.x,
+					    joint->parent_to_joint_origin_transform.position.y,
+					    joint->parent_to_joint_origin_transform.position.z);
+	tf2::Quaternion rotation(joint->parent_to_joint_origin_transform.rotation.x,
+							 joint->parent_to_joint_origin_transform.rotation.y,
+							 joint->parent_to_joint_origin_transform.rotation.z,
+							 joint->parent_to_joint_origin_transform.rotation.w);
 	linkTF.setOrigin(origin);
 	linkTF.setRotation(rotation);
 	return linkTF;
@@ -141,7 +145,11 @@ public:
 	ModuleType *type;
 	std::string id;
 
-	tf::Transform poseRelativeToRoot;
+	/// the pre-calculated pose of this module relative to the rood modules it is static relative to
+	tf2::Transform poseRelativeToRoot;
+
+	/// rootFrameId will be either the bus_frame or a robots EE frame.
+	std::string rootFrameId;
 
 	std::vector<ModuleConnector> connectors;
 };
@@ -150,7 +158,7 @@ class ModuleManager
 {
 public:
 
-	ModuleManager() : rootSet(false) {};
+	ModuleManager() : rootSet(false), modulePosesUptoDate(false) {};
 
 	ModuleInstance* getRootModule();
 
@@ -170,13 +178,93 @@ public:
 
 	ModuleType *getModuleType(std::string type);
 
+private:
+
+	/// Helper function to form the module frame id strings
+	std::string makeModuleFrameId(std::string moduleId);
+
+	/// Helper function to refresh the caches poses of all the modules
+	void updateModulePoses();
+
+	/// Helper function to convert a tf2_transform object to a geometry_msgs::Transform message
+	geometry_msgs::Transform transformToTransformMsg(tf2::Transform transform);
+
 	std::vector<ModuleInstance> modules;
+	bool modulePosesUptoDate;
 
 	ModuleInstance *rootModule;
 	bool rootSet;
 
 	std::map<std::string, ModuleType> loadedModuleTypes;
 };
+
+void ModuleManager::publishTFs()
+{
+	static tf2_ros::TransformBroadcaster br;
+
+	if(!modulePosesUptoDate)
+		updateModulePoses();
+
+	for (int m=0; m<modules.size(); ++m)
+	{
+		// if this is not the root module then publish it's TF relative to it's root node.
+		if (modules[m].id != rootModule->id)
+		{
+			geometry_msgs::TransformStamped transformStamped;
+
+			transformStamped.header.stamp = ros::Time::now();
+			transformStamped.header.frame_id = modules[m].rootFrameId;
+			transformStamped.child_frame_id = makeModuleFrameId(modules[m].id);
+			transformStamped.transform = transformToTransformMsg(modules[m].poseRelativeToRoot);
+
+			br.sendTransform(transformStamped);
+		}
+	}
+}
+
+std::string ModuleManager::makeModuleFrameId(std::string moduleId)
+{
+	return "module_" + moduleId + "_tf";
+}
+
+void ModuleManager::updateModulePoses()
+{
+	std::string busRootFrameId = makeModuleFrameId(rootModule->id);
+	std::string manipulatorEEFrameId = "ee_frame";
+
+	for (int m=0; m<modules.size(); ++m)
+	{
+		tf2::Transform transform;
+		transform.setOrigin( tf2::Vector3(m*1.0, m*0.5, m*0.2) );
+		tf2::Quaternion q;
+		q.setRPY(0, 0, m);
+		transform.setRotation(q);
+
+		// define the pose of the module
+		modules[m].poseRelativeToRoot = transform;
+
+		// define what this pose is relative to
+		modules[m].rootFrameId = busRootFrameId;
+	}
+
+	modulePosesUptoDate = true;
+}
+
+geometry_msgs::Transform ModuleManager::transformToTransformMsg(tf2::Transform transform)
+{
+	geometry_msgs::Transform msg;
+
+	msg.translation.x = transform.getOrigin()[0];
+	msg.translation.y = transform.getOrigin()[1];
+	msg.translation.z = transform.getOrigin()[2];
+
+	msg.rotation.x = transform.getRotation().x();
+	msg.rotation.y = transform.getRotation().y();
+	msg.rotation.z = transform.getRotation().z();
+	msg.rotation.w = transform.getRotation().w();
+
+	return msg;
+}
 
 bool ModuleManager::ensureModuleTypeIsLoaded(std::string type)
 {
