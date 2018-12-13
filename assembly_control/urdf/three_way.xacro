@@ -4,7 +4,7 @@
     <collision name='collision'>
       <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
       <geometry>
-        <mesh filename="package://fluna_gazebo/meshes/RoRo_Sled_V0_1.stl" />
+        <mesh filename="package://assembly_control/meshes/module_3_visual.stl" />
       </geometry>
       <surface>
         <bounce>
@@ -17,7 +17,7 @@
     <visual name='visual'>
       <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
       <geometry>
-        <mesh filename="package://fluna_gazebo/meshes/RoRo_Sled_V0_1.stl" />
+        <mesh filename="package://assembly_control/meshes/module_3_visual.stl" />
       </geometry>
     </visual>
 
@@ -36,19 +36,19 @@
   <link name="connector_2" />
 
   <joint type="fixed" name="connector_0_joint">
-    <origin xyz="0.2 0.4 0.00" rpy="0.0 0.0 1.5707" />
+    <origin xyz="0.110 0.0 0.0" rpy="0.0 0.0 0.0" />
     <child link="connector_0" />
     <parent link="chassis" />
   </joint>
 
   <joint type="fixed" name="connector_1_joint">
-    <origin xyz="0.2 0.0 0.00" rpy="0.0 0.0 0.0" />
+    <origin xyz="0.0 0.110 0.0" rpy="0.0 0.0 1.5707" />
     <child link="connector_1" />
     <parent link="chassis" />
   </joint>
 
   <joint type="fixed" name="connector_2_joint">
-    <origin xyz="00.2 0.4 0.00" rpy="0.0 0.0 -1.5707" />
+    <origin xyz="-0.110 0.0 0.0" rpy="0.0 0.0 3.1416" />
     <child link="connector_2" />
     <parent link="chassis" />
   </joint>

@@ -12,6 +12,7 @@ find_package(catkin REQUIRED
   		 	 rospy
 			 std_msgs
 			 sensor_msgs
+			 geometry_msgs
 			 moveit_msgs
 			 flat_bot_msgs
 			 genmsg

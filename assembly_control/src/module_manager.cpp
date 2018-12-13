@@ -9,6 +9,8 @@
 #include <string>
 #include <ros/ros.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <visualization_msgs/MarkerArray.h>
+//#include <visualization_msgs/Marker.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -39,7 +41,11 @@ public:
 	// list of connectors for the module
 	std::vector<tf2::Transform> connectors;
 
-	// collision model
+	// collision model filename
+	std::string collisionFileName;
+
+	// visual mode filename
+	std::string visualFileName;
 };
 
 ModuleType::ModuleType(std::string typeName, std::string URDFString)
@@ -58,6 +64,20 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 		// each URDF for a module must have a base link and a set of connector links with fixed joints to the base
 
 		boost::shared_ptr<const urdf::Link> baseLink = urdf.getRoot();
+
+		// get the visual model of this module
+		if (baseLink->visual->geometry->type == urdf::Geometry::MESH)
+		{
+			boost::shared_ptr<urdf::Mesh> mesh = boost::static_pointer_cast<urdf::Mesh>(baseLink->visual->geometry);
+
+			visualFileName = mesh->filename;
+			//ROS_INFO("Read module visual filename of [%s]", visualFileName.c_str());
+		}
+		else
+		{
+			ROS_ERROR("Error no visual mesh file specified for module!");
+			visualFileName = "NotSet";
+		}
 
 		// loop through each link checking it has a fixed joint to the base link
 		// node links may be out of order!
@@ -140,6 +160,7 @@ public:
 	{
 		type = modType;
 		this->id = id;
+		poseRelativeToRootKnown = false;
 	}
 
 	ModuleType *type;
@@ -147,6 +168,7 @@ public:
 
 	/// the pre-calculated pose of this module relative to the rood modules it is static relative to
 	tf2::Transform poseRelativeToRoot;
+	bool poseRelativeToRootKnown;
 
 	/// rootFrameId will be either the bus_frame or a robots EE frame.
 	std::string rootFrameId;
@@ -158,13 +180,19 @@ class ModuleManager
 {
 public:
 
-	ModuleManager() : rootSet(false), modulePosesUptoDate(false) {};
+	ModuleManager() : rootSet(false), modulePosesUptoDate(false)
+	{
+		ros::NodeHandle n;
+		moduleMarkerPub = n.advertise<visualization_msgs::MarkerArray>("module", 10);
+	};
 
 	ModuleInstance* getRootModule();
 
 	bool validateModuleStructure();
 
 	void publishTFs();
+
+	void publishModuleMarkers();
 
 	void updateMoveitCollisionScene();
 
@@ -196,11 +224,15 @@ private:
 	bool rootSet;
 
 	std::map<std::string, ModuleType> loadedModuleTypes;
+
+	ros::Publisher moduleMarkerPub;
 };
 
 void ModuleManager::publishTFs()
 {
 	static tf2_ros::TransformBroadcaster br;
+
+	ros::Time timePoint = ros::Time::now();
 
 	if(!modulePosesUptoDate)
 		updateModulePoses();
@@ -212,10 +244,24 @@ void ModuleManager::publishTFs()
 		{
 			geometry_msgs::TransformStamped transformStamped;
 
-			transformStamped.header.stamp = ros::Time::now();
+			transformStamped.header.stamp = timePoint;
 			transformStamped.header.frame_id = modules[m].rootFrameId;
 			transformStamped.child_frame_id = makeModuleFrameId(modules[m].id);
 			transformStamped.transform = transformToTransformMsg(modules[m].poseRelativeToRoot);
+
+			br.sendTransform(transformStamped);
+		}
+
+		// add the connector frames
+		ModuleType *type = modules[m].type;
+		for (int c=0; c<type->connectors.size(); ++c)
+		{
+			geometry_msgs::TransformStamped transformStamped;
+
+			transformStamped.header.stamp = ros::Time::now();
+			transformStamped.header.frame_id = makeModuleFrameId(modules[m].id);
+			transformStamped.child_frame_id = makeModuleFrameId(modules[m].id) + "_connector_" + std::to_string(c);
+			transformStamped.transform = transformToTransformMsg(type->connectors[c]);
 
 			br.sendTransform(transformStamped);
 		}
@@ -232,20 +278,33 @@ void ModuleManager::updateModulePoses()
 	std::string busRootFrameId = makeModuleFrameId(rootModule->id);
 	std::string manipulatorEEFrameId = "ee_frame";
 
+	// reset known module positions execpt for root
 	for (int m=0; m<modules.size(); ++m)
 	{
-		tf2::Transform transform;
-		transform.setOrigin( tf2::Vector3(m*1.0, m*0.5, m*0.2) );
-		tf2::Quaternion q;
-		q.setRPY(0, 0, m);
-		transform.setRotation(q);
-
-		// define the pose of the module
-		modules[m].poseRelativeToRoot = transform;
-
-		// define what this pose is relative to
-		modules[m].rootFrameId = busRootFrameId;
+		modules[m].poseRelativeToRootKnown = (modules[m].id == rootModule->id);
 	}
+
+	// repeatedly loop through the modules adding the known positions of new modules
+	// if their direct parents are known.
+	// stop looping if no more modules are known by a single iteration
+	//bool modulesAdded = true;
+	//while(modulesAdded)
+	//{
+		for (int m=0; m<modules.size(); ++m)
+		{
+			tf2::Transform transform;
+			transform.setOrigin( tf2::Vector3(m*1.0, m*0.5, m*0.2) );
+			tf2::Quaternion q;
+			q.setRPY(0, 0, m);
+			transform.setRotation(q);
+
+			// define the pose of the module
+			modules[m].poseRelativeToRoot = transform;
+
+			// define what this pose is relative to
+			modules[m].rootFrameId = busRootFrameId;
+		}
+	//}
 
 	modulePosesUptoDate = true;
 }
@@ -264,6 +323,44 @@ geometry_msgs::Transform ModuleManager::transformToTransformMsg(tf2::Transform t
 	msg.rotation.w = transform.getRotation().w();
 
 	return msg;
+}
+
+void ModuleManager::publishModuleMarkers()
+{
+	visualization_msgs::MarkerArray ma;
+
+	// add markers for each module
+	for (int m=0; m<modules.size(); ++m)
+	{
+		visualization_msgs::Marker marker;
+
+		marker.header.stamp = ros::Time::now();
+		marker.header.frame_id = makeModuleFrameId(modules[m].id);
+		marker.ns = "module_markers";
+		marker.id = m;
+		marker.type = visualization_msgs::Marker::MESH_RESOURCE;
+		marker.action = visualization_msgs::Marker::ADD;
+		marker.pose.position.x = 0;
+		marker.pose.position.y = 0;
+		marker.pose.position.z = 0;
+		marker.pose.orientation.x = 0.0;
+		marker.pose.orientation.y = 0.0;
+		marker.pose.orientation.z = 0.0;
+		marker.pose.orientation.w = 1.0;
+		marker.scale.x = 1;
+		marker.scale.y = 1;
+		marker.scale.z = 1;
+		marker.color.a = 1.0; // Don't forget to set the alpha!
+		marker.color.r = 0.0;
+		marker.color.g = 1.0;
+		marker.color.b = 0.0;
+		//only if using a MESH_RESOURCE marker type:
+		marker.mesh_resource = modules[m].type->visualFileName;
+
+		ma.markers.push_back(marker);
+	}
+
+	moduleMarkerPub.publish(ma);
 }
 
 bool ModuleManager::ensureModuleTypeIsLoaded(std::string type)
@@ -374,6 +471,7 @@ int main (int argc, char **argv)
 	while(ros::ok())
 	{
 		modman.publishTFs();
+		modman.publishModuleMarkers();
 
 		mainRate.sleep();
 	}

@@ -6,6 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
+        - /TF1
       Splitter Ratio: 0.5
     Tree Height: 853
   - Class: rviz/Selection
@@ -53,34 +54,75 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
-        module__tf:
+        "module_\x18ï¿½aJ|Á¿\x00_tf":
           Value: true
         module_module_a_tf:
           Value: true
+        module_module_a_tf_connector_0:
+          Value: true
+        module_module_a_tf_connector_1:
+          Value: true
+        module_module_a_tf_connector_2:
+          Value: true
         module_module_b_tf:
+          Value: true
+        module_module_b_tf_connector_0:
+          Value: true
+        module_module_b_tf_connector_1:
+          Value: true
+        module_module_b_tf_connector_2:
           Value: true
         module_sat_bus_tf:
           Value: true
-      Marker Scale: 1
+        module_sat_bus_tf_connector_0:
+          Value: true
+        module_sat_bus_tf_connector_1:
+          Value: true
+        module_sat_bus_tf_connector_2:
+          Value: true
+      Marker Scale: 0.300000012
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
       Tree:
-        module__tf:
+        "module_\x18ï¿½aJ|Á¿\x00_tf":
           module_module_a_tf:
-            {}
+            module_module_a_tf_connector_0:
+              {}
+            module_module_a_tf_connector_1:
+              {}
+            module_module_a_tf_connector_2:
+              {}
           module_module_b_tf:
-            {}
+            module_module_b_tf_connector_0:
+              {}
+            module_module_b_tf_connector_1:
+              {}
+            module_module_b_tf_connector_2:
+              {}
           module_sat_bus_tf:
-            {}
+            module_sat_bus_tf_connector_0:
+              {}
+            module_sat_bus_tf_connector_1:
+              {}
+            module_sat_bus_tf_connector_2:
+              {}
       Update Interval: 0
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /module
+      Name: Marker_Visuals
+      Namespaces:
+        module_markers: true
+      Queue Size: 100
       Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Default Light: true
-    Fixed Frame: module__tf
+    Fixed Frame: module_sat_bus_tf
     Frame Rate: 30
   Name: root
   Tools:
@@ -101,7 +143,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 11.0002489
+      Distance: 6.3339901
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
@@ -116,10 +158,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: 0.514797151
+      Pitch: 0.384797275
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.31608105
+      Yaw: 3.90107274
     Saved: ~
 Window Geometry:
   Displays:
