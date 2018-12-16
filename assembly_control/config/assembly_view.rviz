@@ -54,8 +54,6 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
-        "module_\x18ï¿½aJ|Á¿\x00_tf":
-          Value: true
         module_module_a_tf:
           Value: true
         module_module_a_tf_connector_0:
@@ -63,14 +61,6 @@ Visualization Manager:
         module_module_a_tf_connector_1:
           Value: true
         module_module_a_tf_connector_2:
-          Value: true
-        module_module_b_tf:
-          Value: true
-        module_module_b_tf_connector_0:
-          Value: true
-        module_module_b_tf_connector_1:
-          Value: true
-        module_module_b_tf_connector_2:
           Value: true
         module_sat_bus_tf:
           Value: true
@@ -86,7 +76,7 @@ Visualization Manager:
       Show Axes: true
       Show Names: true
       Tree:
-        "module_\x18ï¿½aJ|Á¿\x00_tf":
+        module_sat_bus_tf:
           module_module_a_tf:
             module_module_a_tf_connector_0:
               {}
@@ -94,20 +84,12 @@ Visualization Manager:
               {}
             module_module_a_tf_connector_2:
               {}
-          module_module_b_tf:
-            module_module_b_tf_connector_0:
-              {}
-            module_module_b_tf_connector_1:
-              {}
-            module_module_b_tf_connector_2:
-              {}
-          module_sat_bus_tf:
-            module_sat_bus_tf_connector_0:
-              {}
-            module_sat_bus_tf_connector_1:
-              {}
-            module_sat_bus_tf_connector_2:
-              {}
+          module_sat_bus_tf_connector_0:
+            {}
+          module_sat_bus_tf_connector_1:
+            {}
+          module_sat_bus_tf_connector_2:
+            {}
       Update Interval: 0
       Value: true
     - Class: rviz/MarkerArray
@@ -143,25 +125,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 6.3339901
+      Distance: 1.16583014
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 3.4500401
-        Y: 2.96976686
-        Z: -1.58545876
+        X: -0.0504696965
+        Y: -0.0255806446
+        Z: 0.0537170172
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: 0.384797275
+      Pitch: 0.604431748
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.90107274
+      Yaw: -2.06786251
     Saved: ~
 Window Geometry:
   Displays:

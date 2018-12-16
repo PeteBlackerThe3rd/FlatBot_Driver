@@ -18,9 +18,21 @@
 #include <urdf/model.h>
 #include <stdio.h>
 
-class ModuleConnector
+class ModuleInstance;
+
+class ModuleConnection
 {
-	tf2::Transform pose;
+public:
+	ModuleConnection()
+	{
+		joined = false;
+		connectedToModule = NULL;
+		connectedToConnector = 0;
+	};
+
+	bool joined;
+	ModuleInstance *connectedToModule;
+	int connectedToConnector;
 };
 
 class ModuleType
@@ -161,6 +173,92 @@ public:
 		type = modType;
 		this->id = id;
 		poseRelativeToRootKnown = false;
+
+		// create a vector of open connection objects for each connector
+		connections.resize(type->connectors.size());
+
+		// create 180 degree z rotation TF used to calculate joined connector transforms
+		connectorRotation.setIdentity();
+		tf2::Quaternion z180;
+		z180.setRPY(0.0, 0.0, 3.141592654);
+		connectorRotation.setRotation(z180);
+	}
+
+	/// Method to attempt to join two connectors together
+	/*
+	 * Method to attempt to join two connectors together,verifies that both connectors are
+	 * initially free then creates a reciprocal link between them
+	 */
+	bool joinConnector(unsigned int thisConnectorIdx, ModuleInstance *otherModule, unsigned int otherConnectorIdx)
+	{
+		// verify this is a valid joint to make
+		if (thisConnectorIdx >= (int)connections.size())
+		{
+			ROS_ERROR("Error trying to join connectors: This connector index (%d) out of range (0 - %d)!",
+					  thisConnectorIdx,
+					  (int)(connections.size())-1);
+			return false;
+		}
+		if (connections[thisConnectorIdx].joined)
+		{
+			ROS_ERROR("Error trying to join connectors: This connector (%d) is already joined!", thisConnectorIdx);
+			return false;
+		}
+		if (otherConnectorIdx >= (int)otherModule->connections.size())
+		{
+			ROS_ERROR("Error trying to join connectors: Other connector index (%d) out of range (0 - %d)!",
+					  otherConnectorIdx,
+					  (int)(otherModule->connections.size())-1);
+			return false;
+		}
+		if (otherModule->connections[otherConnectorIdx].joined)
+		{
+			ROS_ERROR("Error trying to join connectors: Other connector (%d) is already joined!", otherConnectorIdx);
+			return false;
+		}
+
+		// make this side of the joint
+		connections[thisConnectorIdx].joined = true;
+		connections[thisConnectorIdx].connectedToModule = otherModule;
+		connections[thisConnectorIdx].connectedToConnector = otherConnectorIdx;
+
+		// make the other size of the joint
+		otherModule->connections[otherConnectorIdx].joined = true;
+		otherModule->connections[otherConnectorIdx].connectedToModule = this;
+		otherModule->connections[otherConnectorIdx].connectedToConnector = thisConnectorIdx;
+
+		return true;
+	}
+
+	/// Method to calculate the relative pose of the connected module in the frame of this module via connected joints
+	tf2::Transform getJointTF(unsigned int connectionIdx)
+	{
+		tf2::Transform identityTF;
+		identityTF.setIdentity();
+
+		if (connectionIdx > (int)connections.size())
+		{
+			ROS_ERROR("Error getting joint TF: connection index (%d) out of range (0 - %d)",
+					  connectionIdx,
+					  (int)connections.size()-1);
+			return identityTF;
+		}
+		if (!connections[connectionIdx].joined)
+		{
+			ROS_ERROR("Error getting joint TF: connection index (%d) current open!",
+					  connectionIdx);
+			return identityTF;
+		}
+
+		int childConnectorIdx = connections[connectionIdx].connectedToConnector;
+		ModuleType *childModuleType = connections[connectionIdx].connectedToModule->type;
+
+		tf2::Transform parentTF = type->connectors[connectionIdx];
+		tf2::Transform childTF = childModuleType->connectors[childConnectorIdx];
+
+
+		tf2::Transform jointTF = (parentTF * connectorRotation) * childTF.inverse();
+		return jointTF;
 	}
 
 	ModuleType *type;
@@ -173,7 +271,10 @@ public:
 	/// rootFrameId will be either the bus_frame or a robots EE frame.
 	std::string rootFrameId;
 
-	std::vector<ModuleConnector> connectors;
+	/// List of connection status objects for each connector of this module
+	std::vector<ModuleConnection> connections;
+
+	tf2::Transform connectorRotation;
 };
 
 class ModuleManager
@@ -206,6 +307,8 @@ public:
 
 	ModuleType *getModuleType(std::string type);
 
+	ModuleInstance *getInstanceById(std::string id);
+
 private:
 
 	/// Helper function to form the module frame id strings
@@ -220,7 +323,8 @@ private:
 	std::vector<ModuleInstance> modules;
 	bool modulePosesUptoDate;
 
-	ModuleInstance *rootModule;
+	//ModuleInstance *rootModule;
+	std::string rootModuleId;
 	bool rootSet;
 
 	std::map<std::string, ModuleType> loadedModuleTypes;
@@ -240,7 +344,7 @@ void ModuleManager::publishTFs()
 	for (int m=0; m<modules.size(); ++m)
 	{
 		// if this is not the root module then publish it's TF relative to it's root node.
-		if (modules[m].id != rootModule->id)
+		if (modules[m].id != rootModuleId)
 		{
 			geometry_msgs::TransformStamped transformStamped;
 
@@ -275,24 +379,97 @@ std::string ModuleManager::makeModuleFrameId(std::string moduleId)
 
 void ModuleManager::updateModulePoses()
 {
-	std::string busRootFrameId = makeModuleFrameId(rootModule->id);
+	//std::string busRootFrameId = makeModuleFrameId(rootModule->id);
 	std::string manipulatorEEFrameId = "ee_frame";
 
-	// reset known module positions execpt for root
+	// reset known module positions except for roots (sat bus and robot EE) TODO (Update this)
 	for (int m=0; m<modules.size(); ++m)
 	{
-		modules[m].poseRelativeToRootKnown = (modules[m].id == rootModule->id);
+		modules[m].poseRelativeToRootKnown = (modules[m].id == rootModuleId);
+		if (modules[m].poseRelativeToRootKnown)
+		{
+			modules[m].rootFrameId = makeModuleFrameId(modules[m].id);
+			modules[m].poseRelativeToRoot.setIdentity();
+		}
+
+		printf("Module [%d] \"%s\" ", m, modules[m].id.c_str());
+		if (modules[m].poseRelativeToRootKnown)
+			printf("Is root");
+		else
+			printf("Is not root");
+		printf(" and has a rootFrameId of \"%s\"\n", modules[m].rootFrameId.c_str());
 	}
 
 	// repeatedly loop through the modules adding the known positions of new modules
 	// if their direct parents are known.
 	// stop looping if no more modules are known by a single iteration
-	//bool modulesAdded = true;
-	//while(modulesAdded)
-	//{
+	int modulesAdded = 1;
+	int passCount = 0;
+	while(modulesAdded > 0)
+	{
+		modulesAdded = 0;
+
 		for (int m=0; m<modules.size(); ++m)
 		{
-			tf2::Transform transform;
+			// if the pose of this module is already known then skip it
+			if (modules[m].poseRelativeToRootKnown == true)
+				continue;
+
+			std::vector<std::string> connectionChains;
+			std::vector<tf2::Transform> poseTFs;
+			std::vector<std::string> connectionRootIds;
+
+			// find any connections between this module and a module of known position
+			// and calculate the pose of this module via each connection.
+			for (int c=0; c<modules[m].connections.size(); ++c)
+				if (modules[m].connections[c].joined)
+				{
+					ModuleInstance *otherModule = modules[m].connections[c].connectedToModule;
+					if (otherModule->poseRelativeToRootKnown)
+					{
+						// format connection chain, used for debugging and error reporting of inconsistencies
+						std::string chain = "Parent \"" + modules[m].id +
+											"\"[" + std::to_string(c) +
+											"] -> Child \"" + otherModule->id +
+											"\"[" + std::to_string(modules[m].connections[c].connectedToConnector) +
+											"]";
+						connectionChains.push_back(chain);
+						tf2::Transform connectionTF = modules[m].getJointTF(c);
+						tf2::Transform poseTF = otherModule->poseRelativeToRoot * connectionTF.inverse();
+						poseTFs.push_back(poseTF);
+						connectionRootIds.push_back(otherModule->rootFrameId);
+					}
+				}
+
+			ROS_WARN("Module \"%s\" Found %d connections to placed modules", modules[m].id.c_str(), (int)poseTFs.size());
+			for (int d=0; d<poseTFs.size(); ++d)
+			{
+				ROS_WARN("Found connection (%s)", connectionChains[d].c_str());
+				ROS_WARN("Quaternion (%f %f %f %f)", poseTFs[d].getRotation().getX(),
+													 poseTFs[d].getRotation().getY(),
+													 poseTFs[d].getRotation().getZ(),
+													 poseTFs[d].getRotation().getW());
+			}
+
+			// if there were no connections then don't do anything
+			if (poseTFs.size() == 0)
+				continue;
+
+			// if there were more than 1 connections then verify each transform is consistent within machine epislon
+			if (poseTFs.size() > 1)
+			{
+				// TODO
+			}
+
+			// set the pose of this module
+			modules[m].poseRelativeToRoot = poseTFs[0];
+			modules[m].poseRelativeToRootKnown = true;
+			modules[m].rootFrameId = connectionRootIds[0];
+			++modulesAdded;
+
+			// update the known pose of this module
+
+			/*tf2::Transform transform;
 			transform.setOrigin( tf2::Vector3(m*1.0, m*0.5, m*0.2) );
 			tf2::Quaternion q;
 			q.setRPY(0, 0, m);
@@ -302,9 +479,12 @@ void ModuleManager::updateModulePoses()
 			modules[m].poseRelativeToRoot = transform;
 
 			// define what this pose is relative to
-			modules[m].rootFrameId = busRootFrameId;
+			modules[m].rootFrameId = busRootFrameId;*/
 		}
-	//}
+
+		ROS_INFO("Pose Calculation pass %d, placed %d new modules.", passCount, modulesAdded);
+		++passCount;
+	}
 
 	modulePosesUptoDate = true;
 }
@@ -400,6 +580,21 @@ ModuleType *ModuleManager::getModuleType(std::string type)
 		return NULL;
 }
 
+/// Method to find an instance with the given id and return a ptr to the module instance.
+/*
+ * Returns NULL if no matching module was found
+ */
+ModuleInstance *ModuleManager::getInstanceById(std::string id)
+{
+	for (int m=0; m<modules.size(); ++m)
+	{
+		if (modules[m].id == id)
+			return &modules[m];
+	}
+
+	return NULL;
+}
+
 bool ModuleManager::loadConfiguration(std::string name)
 {
 	// YAML config data structure
@@ -410,49 +605,86 @@ bool ModuleManager::loadConfiguration(std::string name)
 	if(!ros::param::get(configParamName.c_str(), moduleYaml))
 	{
 		ROS_ERROR("Failed to read module config from param server");
-		exit(1);
+		return false;
 	}
 
-	if (moduleYaml.getType() == XmlRpc::XmlRpcValue::TypeArray)
+	if (moduleYaml.getType() != XmlRpc::XmlRpcValue::TypeArray)
 	{
-		printf("Modules is an array, that's good I guess.\n");
-
-		printf("size of modules is [%d]\n", moduleYaml.size());
+		ROS_ERROR("Error loading initial configuration yaml: 'modules' is not an array!");
+		return false;
 	}
 
+	// 1st pass over module list to load all references URDF definitions and create module instances
 	for (int i=0; i<moduleYaml.size(); ++i)
-	{
 		if (moduleYaml[i].getType() == XmlRpc::XmlRpcValue::TypeStruct)
-			printf("module [%d] is a struct, good I guess!\n", i);
-
-		std::string id = moduleYaml[i]["id"];
-		std::string type = moduleYaml[i]["type"];
-		bool isRoot = moduleYaml[i]["root"];
-
-		if (id != "" && type != "")
 		{
-			printf("Found a module definition okay.\nid : %s\ntype : %s\n", id.c_str(), type.c_str());
-			if (isRoot)
-				printf("Root module\n");
-			else
-				printf("Not root module\n");
 
-			if (ensureModuleTypeIsLoaded(type))
+			std::string id = moduleYaml[i]["id"];
+			std::string type = moduleYaml[i]["type"];
+			bool isRoot = moduleYaml[i]["root"];
+
+			if (id != "" && type != "")
 			{
-				printf("module type is okay.\n");
+				if (ensureModuleTypeIsLoaded(type))
+				{
+					ModuleInstance newModule(getModuleType(type), id);
+					modules.push_back(newModule);
 
-				ModuleInstance newModule(getModuleType(type), id);
-				modules.push_back(newModule);
-
-				// if this is the root module then add a link to.
-				if (isRoot)
-					rootModule = &modules[modules.size()-1];
+					// if this is the root module then add a link to.
+					if (isRoot)
+						//rootModule = &(modules[modules.size()-1]);
+						rootModuleId = newModule.id;
+				}
+				else
+					ROS_ERROR("Error loading initial configuration yaml: Failed to load module type \"%s\"!", type.c_str());
 			}
 			else
-				printf("failed to load module type!\n");
+			{
+				ROS_ERROR("Reading initial module config: Id or Type not set when reading module instance!");
+			}
 		}
+	ROS_INFO("Created %d module instances.", (int)modules.size());
 
-	}
+	// 2nd pass over module list to create joints between connectors
+	int connectorCount = 0;
+	for (int i=0; i<moduleYaml.size(); ++i)
+		if (moduleYaml[i].getType() == XmlRpc::XmlRpcValue::TypeStruct)
+		{
+
+			// if this module instance has a connections list
+			if (moduleYaml[i].hasMember("connections"))
+			{
+				std::string id = moduleYaml[i]["id"];
+				ModuleInstance *module = getInstanceById(id);
+				XmlRpc::XmlRpcValue connections = moduleYaml[i]["connections"];
+
+				for (int c=0; c<connections.size(); ++c)
+				{
+					std::string childModuleId = connections[c]["child_module"];
+					int childConnectorIdx = connections[c]["child_connector"];
+					int parentConnectorIdx = connections[c]["parent_connector"];
+
+					ModuleInstance *childModule = getInstanceById(childModuleId);
+					if (childModule == NULL)
+					{
+						ROS_ERROR("Error reading initial module connections: Cannot find child module with id \"%s\"",
+								  childModuleId.c_str());
+						return false;
+					}
+					else
+					{
+						ROS_WARN("About to join module \"%s\"[%d] to module \"%s\"[%d]",
+								 id.c_str(), parentConnectorIdx,
+								 childModuleId.c_str(),  childConnectorIdx);
+						module->joinConnector(parentConnectorIdx, childModule, childConnectorIdx);
+						++connectorCount;
+					}
+				}
+			}
+		}
+	ROS_INFO("Created %d connector joints.", connectorCount);
+
+	return true;
 }
 
 int main (int argc, char **argv)

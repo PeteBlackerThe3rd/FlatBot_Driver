@@ -9,11 +9,18 @@ modules:
    connections:
     - child_module: sat_bus
       parent_connector: 0
-      child_connector: 0
+      child_connector: 2
  - id: module_b
    type: three_way
    root: false
    connections:
     - child_module: sat_bus
       parent_connector: 0
-      child_connector: 2
+      child_connector: 1
+ - id: extra_thing
+   type: three_way
+   root: false
+   connections:
+    - child_module: module_b
+      parent_connector: 2
+      child_connector: 1
