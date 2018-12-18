@@ -1,0 +1,14 @@
+<launch>
+	<param name="module_description_three_way"
+      command="$(find xacro)/xacro --inorder $(find assembly_control)/urdf/three_way.xacro" />
+  
+    <!-- read the YAML file which defines the initial state of the modules -->
+    <rosparam file="$(find assembly_control)/config/test_setup.yaml" command="load"/>
+    
+    <node name="module_manager" pkg="assembly_control" type="modman_node" output="screen" required="true" />
+    
+    <node pkg="tf" type="static_transform_publisher" name="base_joint" args="0.0 0.0 0.0  0 0 0 /module_flatbot_base_tf /sirom_a_link 10"/>
+  
+    <include file="$(find flat_bot_moveit)/launch/moveit_planning_execution.launch" />
+    <!-- node name="viewer" pkg="rviz" type="rviz" required="true" args="-d $(find assembly_control)/config/assembly_view.rviz"/-->
+</launch>

@@ -10,6 +10,9 @@ modules:
     - child_module: sat_bus
       parent_connector: 0
       child_connector: 2
+    - child_module: flatbot_base
+      parent_connector: 2
+      child_connector: 0
  - id: module_b
    type: three_way
    root: false
@@ -24,3 +27,6 @@ modules:
     - child_module: module_b
       parent_connector: 2
       child_connector: 1
+ - id: flatbot_base
+   type: arm_base
+   root: false

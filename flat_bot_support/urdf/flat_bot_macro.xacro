@@ -11,10 +11,10 @@
     </gazebo>
   
     <!-- placeholder links to define the connector coordinate frames of each end effector -->
-    <link name="${prefix}sirom_a_origin">
+    <!--link name="${prefix}sirom_a_origin">
     </link>   
     <link name="${prefix}sirom_b_origin">
-    </link>   
+    </link-->   
   
     <!-- links: main serial chain -->
     <link name="${prefix}sirom_a_link">
@@ -156,11 +156,11 @@
     </link>
 
     <!-- transforms from the standard SIROM frame to the sirom_a link -->
-    <joint name="${prefix}sirom_a_origin-link" type="fixed">
+    <!--joint name="${prefix}sirom_a_origin-link" type="fixed">
       <origin xyz="0 0 0" rpy="0 0 ${pi}"/>
       <parent link="${prefix}sirom_a_origin"/>
       <child link="${prefix}sirom_a_link"/>
-    </joint>
+    </joint-->
 
     <!-- joints: main serial chain -->
     <joint name="${prefix}wrist_a_joint" type="revolute">
@@ -201,11 +201,11 @@
     </joint>
 
     <!-- transform from the standard SIROM frame to the sirom_b link -->
-    <joint name="${prefix}sirom_b_link-origin" type="fixed">
+    <!--joint name="${prefix}sirom_b_link-origin" type="fixed">
       <origin xyz="0.0785 -0.0213 0" rpy="0 0 0" />
       <parent link="${prefix}sirom_b_link" />
       <child link="${prefix}sirom_b_origin" />
-    </joint>
+    </joint-->
     
     <!-- ================= Arm Joint Transmissions ==================== -->
     <transmission name="wrist_a_trans">

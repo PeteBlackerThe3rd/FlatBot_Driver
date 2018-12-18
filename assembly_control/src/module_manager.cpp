@@ -38,15 +38,28 @@ public:
 class ModuleType
 {
 public:
+	ModuleType()
+	{
+		name="Warning_name_not_set";
+		loadedOkay = false;
+		hasVisualModel = false;
+		isRobotConnection = false;
+	};
 	ModuleType(std::string typeName, std::string URDFString);
 
 	bool fixedJointExists(urdf::Model *model, std::string linkName);
 
 	tf2::Transform getFixedJointTF(boost::shared_ptr< const urdf::Joint > joint);
 
+	std::string makeModuleFrameId(std::string moduleId);
+
 	std::string name;
 
 	bool loadedOkay;
+
+	bool hasVisualModel;
+
+	bool isRobotConnection;
 
 	urdf::Model urdf;
 
@@ -63,11 +76,13 @@ public:
 ModuleType::ModuleType(std::string typeName, std::string URDFString)
 {
 	name = typeName;
+	isRobotConnection = false;
 
 	if (!urdf.initString(URDFString.c_str()))
 	{
 		ROS_ERROR("Failed to parse urdf string for module type [%s]", typeName.c_str());
 		loadedOkay = false;
+		hasVisualModel = false;
 	}
 	else
 	{
@@ -83,12 +98,14 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 			boost::shared_ptr<urdf::Mesh> mesh = boost::static_pointer_cast<urdf::Mesh>(baseLink->visual->geometry);
 
 			visualFileName = mesh->filename;
+			hasVisualModel = true;
 			//ROS_INFO("Read module visual filename of [%s]", visualFileName.c_str());
 		}
 		else
 		{
 			ROS_ERROR("Error no visual mesh file specified for module!");
 			visualFileName = "NotSet";
+			hasVisualModel = false;
 		}
 
 		// loop through each link checking it has a fixed joint to the base link
@@ -163,6 +180,37 @@ tf2::Transform ModuleType::getFixedJointTF(boost::shared_ptr< const urdf::Joint 
 	linkTF.setRotation(rotation);
 	return linkTF;
 }
+
+std::string ModuleType::makeModuleFrameId(std::string moduleId)
+{
+	return "module_" + moduleId + "_tf";
+}
+
+class ModuleTypeArmBase : public ModuleType
+{
+public:
+	ModuleTypeArmBase()
+	{
+		name = "arm_base";
+		loadedOkay = true;
+		hasVisualModel = false;
+		isRobotConnection = true;
+
+		// create a single 180 degree rotation connection to link the arm_base_link_frame to the connector
+		tf2::Transform connector;
+		connector.setIdentity();
+		tf2::Quaternion z180;
+		z180.setRPY(0.0, 0.0, 3.141592654);
+		connector.setRotation(z180);
+		connectors.push_back(connector);
+	};
+
+	// override makeModuleFrameId method so it always returns base_link
+	std::string makeModuleFrameId(std::string moduleId)
+	{
+		return "base_link";
+	};
+};
 
 class ModuleInstance
 {
@@ -261,6 +309,8 @@ public:
 		return jointTF;
 	}
 
+	std::string makeModuleFrameId();
+
 	ModuleType *type;
 	std::string id;
 
@@ -277,6 +327,11 @@ public:
 	tf2::Transform connectorRotation;
 };
 
+std::string ModuleInstance::makeModuleFrameId()
+{
+	return type->makeModuleFrameId(id);
+}
+
 class ModuleManager
 {
 public:
@@ -285,6 +340,9 @@ public:
 	{
 		ros::NodeHandle n;
 		moduleMarkerPub = n.advertise<visualization_msgs::MarkerArray>("module", 10);
+
+		// create robot base and end effector virtual modules so they can be referenced by concrete modules as they're loaded
+		loadedModuleTypes.emplace("arm_base", ModuleTypeArmBase());
 	};
 
 	ModuleInstance* getRootModule();
@@ -320,13 +378,14 @@ private:
 	/// Helper function to convert a tf2_transform object to a geometry_msgs::Transform message
 	geometry_msgs::Transform transformToTransformMsg(tf2::Transform transform);
 
+	/// vector of module instances
 	std::vector<ModuleInstance> modules;
 	bool modulePosesUptoDate;
 
-	//ModuleInstance *rootModule;
 	std::string rootModuleId;
 	bool rootSet;
 
+	/// vector of module types currently loaded by the system
 	std::map<std::string, ModuleType> loadedModuleTypes;
 
 	ros::Publisher moduleMarkerPub;
@@ -512,6 +571,10 @@ void ModuleManager::publishModuleMarkers()
 	// add markers for each module
 	for (int m=0; m<modules.size(); ++m)
 	{
+		// if this module doesn't have a visual model then skip it
+		if (!modules[m].type->hasVisualModel)
+			continue;
+
 		visualization_msgs::Marker marker;
 
 		marker.header.stamp = ros::Time::now();
@@ -530,11 +593,19 @@ void ModuleManager::publishModuleMarkers()
 		marker.scale.x = 1;
 		marker.scale.y = 1;
 		marker.scale.z = 1;
-		marker.color.a = 1.0; // Don't forget to set the alpha!
-		marker.color.r = 0.0;
-		marker.color.g = 1.0;
-		marker.color.b = 0.0;
-		//only if using a MESH_RESOURCE marker type:
+		marker.color.a = 1.0;
+		if (modules[m].id == rootModuleId)
+		{
+			marker.color.r = 1.0;
+			marker.color.g = 1.0;
+			marker.color.b = 1.0;
+		}
+		else
+		{
+			marker.color.r = 0.0;
+			marker.color.g = 1.0;
+			marker.color.b = 0.0;
+		}
 		marker.mesh_resource = modules[m].type->visualFileName;
 
 		ma.markers.push_back(marker);
