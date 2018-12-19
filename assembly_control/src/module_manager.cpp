@@ -10,11 +10,14 @@
 #include <ros/ros.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <visualization_msgs/MarkerArray.h>
-//#include <visualization_msgs/Marker.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-//#include <tf/tf.h>
+#include <geometric_shapes/shapes.h>
+#include <geometric_shapes/mesh_operations.h>
+#include <geometric_shapes/shape_operations.h>
+#include <moveit_msgs/PlanningScene.h>
+#include <shape_msgs/Mesh.h>
 #include <urdf/model.h>
 #include <stdio.h>
 
@@ -45,6 +48,11 @@ public:
 		hasVisualModel = false;
 		isRobotConnection = false;
 	};
+	~ModuleType()
+	{
+		if (hasCollisionModel)
+			delete collisionMesh;
+	}
 	ModuleType(std::string typeName, std::string URDFString);
 
 	bool fixedJointExists(urdf::Model *model, std::string linkName);
@@ -58,6 +66,9 @@ public:
 	bool loadedOkay;
 
 	bool hasVisualModel;
+	bool hasCollisionModel;
+
+	shapes::Mesh *collisionMesh;
 
 	bool isRobotConnection;
 
@@ -66,11 +77,8 @@ public:
 	// list of connectors for the module
 	std::vector<tf2::Transform> connectors;
 
-	// collision model filename
-	std::string collisionFileName;
-
-	// visual mode filename
 	std::string visualFileName;
+	std::string collisionFileName;
 };
 
 ModuleType::ModuleType(std::string typeName, std::string URDFString)
@@ -106,6 +114,24 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 			ROS_ERROR("Error no visual mesh file specified for module!");
 			visualFileName = "NotSet";
 			hasVisualModel = false;
+		}
+
+		// get the collision model of this module
+		if (baseLink->collision->geometry->type == urdf::Geometry::MESH)
+		{
+			boost::shared_ptr<urdf::Mesh> mesh = boost::static_pointer_cast<urdf::Mesh>(baseLink->collision->geometry);
+
+			collisionFileName = mesh->filename;
+			hasCollisionModel = true;
+
+			ROS_INFO("Reading module collision filename of [%s]", collisionFileName.c_str());
+			collisionMesh = shapes::createMeshFromResource(collisionFileName);
+		}
+		else
+		{
+			ROS_ERROR("Error no collision mesh file specified for module!");
+			collisionFileName = "NotSet";
+			hasCollisionModel = false;
 		}
 
 		// loop through each link checking it has a fixed joint to the base link
@@ -150,7 +176,7 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 			//printf("Successfully found connector [%d] of module \"%s\"\n", linkNum, name.c_str());
 
 			tf2::Transform connectorTF = getFixedJointTF(connectorJoint);
-			printf("made TF okay.\n"); fflush(stdout);
+			//printf("made TF okay.\n"); fflush(stdout);
 			if (connectors.size() < linkNum+1)
 				connectors.resize(linkNum+1);
 			connectors[linkNum] = connectorTF;
@@ -186,12 +212,12 @@ std::string ModuleType::makeModuleFrameId(std::string moduleId)
 	return "module_" + moduleId + "_tf";
 }
 
-class ModuleTypeArmBase : public ModuleType
+class ModuleTypeArm : public ModuleType
 {
 public:
-	ModuleTypeArmBase()
+	ModuleTypeArm()
 	{
-		name = "arm_base";
+		name = "arm";
 		loadedOkay = true;
 		hasVisualModel = false;
 		isRobotConnection = true;
@@ -206,10 +232,10 @@ public:
 	};
 
 	// override makeModuleFrameId method so it always returns base_link
-	std::string makeModuleFrameId(std::string moduleId)
-	{
-		return "base_link";
-	};
+	//std::string makeModuleFrameId(std::string moduleId)
+	//{
+	//	return "base_link";
+	//};
 };
 
 class ModuleInstance
@@ -336,13 +362,18 @@ class ModuleManager
 {
 public:
 
-	ModuleManager() : rootSet(false), modulePosesUptoDate(false)
+	ModuleManager(std::string planningScene = "None") : rootSet(false), modulePosesUptoDate(false)
 	{
 		ros::NodeHandle n;
 		moduleMarkerPub = n.advertise<visualization_msgs::MarkerArray>("module", 10);
 
 		// create robot base and end effector virtual modules so they can be referenced by concrete modules as they're loaded
-		loadedModuleTypes.emplace("arm_base", ModuleTypeArmBase());
+		loadedModuleTypes.emplace("arm", ModuleTypeArm());
+
+		// if a planning scene was given then attach to it
+		planningSceneAttached = (planningScene != "None");
+		if (planningSceneAttached)
+			planning_scene_diff_pub = n.advertise<moveit_msgs::PlanningScene>("planning_scene", 1);
 	};
 
 	ModuleInstance* getRootModule();
@@ -353,7 +384,7 @@ public:
 
 	void publishModuleMarkers();
 
-	void updateMoveitCollisionScene();
+	void updateMoveitCollisionScene(bool first = false);
 
 	bool loadConfiguration(std::string name);
 
@@ -388,7 +419,10 @@ private:
 	/// vector of module types currently loaded by the system
 	std::map<std::string, ModuleType> loadedModuleTypes;
 
+	bool planningSceneAttached;
+
 	ros::Publisher moduleMarkerPub;
+	ros::Publisher planning_scene_diff_pub;
 };
 
 void ModuleManager::publishTFs()
@@ -402,6 +436,12 @@ void ModuleManager::publishTFs()
 
 	for (int m=0; m<modules.size(); ++m)
 	{
+		// if the relative pose of this module is not known.
+		// this will only happen in error cases but the error is reported by the
+		// updateModulePoses method, not here.
+		if (!modules[m].poseRelativeToRootKnown)
+			continue;
+
 		// if this is not the root module then publish it's TF relative to it's root node.
 		if (modules[m].id != rootModuleId)
 		{
@@ -545,6 +585,18 @@ void ModuleManager::updateModulePoses()
 		++passCount;
 	}
 
+	// check if there are any modules with unknown poses (i.e. disconnected modules)
+	int looseModuleCount = 0;
+	for (int m=0; m<modules.size(); ++m)
+	{
+		if (!modules[m].poseRelativeToRootKnown)
+			++looseModuleCount;
+	}
+	if (looseModuleCount > 0)
+		ROS_ERROR("Error finding poses of all modules: %d of %d modules could not be located!",
+				  looseModuleCount,
+				  (int)modules.size());
+
 	modulePosesUptoDate = true;
 }
 
@@ -612,6 +664,56 @@ void ModuleManager::publishModuleMarkers()
 	}
 
 	moduleMarkerPub.publish(ma);
+}
+
+void ModuleManager::updateMoveitCollisionScene(bool first)
+{
+	// check there is an attached moveGroupInterface
+	if (!planningSceneAttached)
+	{
+		ROS_ERROR("Error call to updateMoveitCollisionScene on a ModuleManager which is not connected to a planning scene!");
+		return;
+	}
+
+	// the planningScene message to add all the collision scene updates into
+	moveit_msgs::PlanningScene planningSceneUpdate;
+
+	planningSceneUpdate.is_diff = true;
+
+	// loop through all modules adding/updating them in the collision scene
+	for (int m=0; m<modules.size(); ++m)
+	{
+		// if this module doesn't have a collision model then skip it
+		if (!modules[m].type->hasCollisionModel)
+			continue;
+
+		moveit_msgs::AttachedCollisionObject attachedModule;
+		attachedModule.link_name = "r_wrist_roll_link";  // <---      TODO
+		/* The header must contain a valid TF frame*/
+		attachedModule.object.header.frame_id = modules[m].makeModuleFrameId();
+		/* The id of the object */
+		attachedModule.object.id = "collision" + modules[m].makeModuleFrameId();
+
+		// Identity pose because module it always at it's own origin
+		geometry_msgs::Pose pose;
+		pose.orientation.w = 1.0;
+
+		// attach pose and collision mesh to message
+		shapes::ShapeMsg collisionMesh;
+		shapes::constructMsgFromShape(modules[m].type->collisionMesh, collisionMesh);
+		attachedModule.object.meshes.push_back(boost::get<shape_msgs::Mesh>(collisionMesh));
+		attachedModule.object.mesh_poses.push_back(pose);
+
+		attachedModule.object.operation = attachedModule.object.ADD;
+
+		// TODO need to add a check to see if this module is relative to the Sat Bus or robot EE and update
+		// planningSceneUpdate.world....
+		// or
+		// PlanningSceneUpdate.robot.... acordingly
+
+		// add this object diff to the update message
+		planningSceneUpdate.world.collision_objects.push_back(attachedModule.object);
+	}
 }
 
 bool ModuleManager::ensureModuleTypeIsLoaded(std::string type)

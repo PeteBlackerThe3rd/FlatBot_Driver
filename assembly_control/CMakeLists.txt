@@ -21,7 +21,8 @@ find_package(catkin REQUIRED
 			 message_generation
 			 urdf
 			 tf2
-			 tf2_ros)
+			 tf2_ros
+			 geometric_shapes)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS system)

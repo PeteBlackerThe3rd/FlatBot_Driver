@@ -28,5 +28,8 @@ modules:
       parent_connector: 2
       child_connector: 1
  - id: flatbot_base
-   type: arm_base
+   type: arm
+   root: false
+ - id: flatbot_ee
+   type: arm
    root: false
