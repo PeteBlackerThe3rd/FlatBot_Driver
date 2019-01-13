@@ -9,7 +9,7 @@ add_compile_options(-std=c++11)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED
 			 roscpp
-  		 rospy
+  		 	 rospy
 			 std_msgs
 			 sensor_msgs
 			 moveit_msgs
@@ -158,7 +158,7 @@ add_executable(driver_node src/driver_node.cpp)
 add_dependencies(driver_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(driver_node  ${catkin_LIBRARIES} )
 
-add_executable(driver_test src/herkulex_interface.cpp)
+add_executable(driver_test src/driver_test.cpp src/herkulex_interface.cpp)
 add_dependencies(driver_test ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(driver_test  ${catkin_LIBRARIES} )
 

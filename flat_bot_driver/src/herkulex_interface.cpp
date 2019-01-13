@@ -1,368 +1,502 @@
+
 #include <math.h>
 #include <stdlib.h>
-
-//#include <boost/asio/serial_port.hpp>
-#include <boost/asio.hpp>
-#include <boost/thread.hpp>
-//#include <boost/asio/buffer.hpp>
+//#include <boost/algorithm/string.hpp>
 
 // ROS libraries
 #include "ros/ros.h"
-#include "std_msgs/String.h"
-#include "sensor_msgs/JointState.h"
-#include <actionlib/server/simple_action_server.h>
-#include "moveit_msgs/ExecuteTrajectoryAction.h"
-#include "flat_bot_msgs/SetStatus.h"
+//#include "sensor_msgs/JointState.h"
+//#include <actionlib/server/simple_action_server.h>
+//#include "moveit_msgs/ExecuteTrajectoryAction.h"
 
-boost::asio::serial_port *port;
+#include "herkulex_interface.h"
 
-#define EEP_WRITE (u_char) 0x01 // command for writing to EEP
-#define EEP_READ (u_char) 0x02// command for reading from EEP
-#define RAM_WRITE (u_char) 0x03 // command for writing to RAM
-#define RAM_READ (u_char) 0x04 // command for reading from RAM
-#define I_JOG (u_char) 0x05 // command for servo movement control
-#define S_JOG (u_char) 0x06 // command for servo movement control
-#define STAT (u_char) 0x07 // command for getting servo status
-#define ROLLBACK (u_char) 0x08 // command for restoring factory defaults
-#define REBOOT (u_char) 0x09 // command for rebooting servo
-
-#define ACK_POLICY_RAM_ADDR (u_char) 0x01
-#define ACK_POLICY_EEP_ADDR (u_char) 0x07
-
-#define ACK_POLICY_NO_REPLY (u_char) 0x00
-#define ACK_POLICY_REPLY_TO_READ (u_char) 0x01
-#define ACK_POLICY_REPLY_TO_ALL (u_char) 0x02
-
-#define TORQUE_CONTROL_RAM_ADDR (u_char) 52
-#define TORQUE_CONTROL_TORQUE_FREE (u_char) 0x00 // servo manually movable, operation command (I_JOG, S_JOG) not possible
-#define TORQUE_CONTROL_BREAK_ON (u_char) 0x40 // servo stopped, operation command (I_JOG, S_JOG) not possible
-#define TORQUE_CONTROL_TORQUE_ON (u_char) 0x60 // operation possible
-
-#define LED_CONTROL_RAM_ADDR (u_char) 53
-#define LED_CONTROL_OFF (u_char) 0x00
-#define LED_CONTROL_GREEN (u_char) 0x01
-#define LED_CONTROL_BLUE (u_char) 0x02
-#define LED_CONTROL_RED (u_char) 0x04
-
-#define STATUS_ERROR_RAM_ADDR (u_char) 48
-
-#define MIN_POSITION_RAM_ADDR (u_char) 20
-#define MIN_POSITION_EEP_ADDR (u_char) 26
-#define MAX_POSITION_RAM_ADDR (u_char) 22
-#define MAX_POSITION_EEP_ADDR (u_char) 28
-
-#define ABSOLUTE_POSITION_RAM_ADDR (u_char) 60
-
-#define SERVO_TYPE_UNKNOWN 0
-#define SERVO_TYPE_DRS_0101 1
-#define SERVO_TYPE_DRS_0602 2
-
-#define DRS_0101_MIN_POS 0 // steps
-#define DRS_0101_MAX_POS 1023 // steps
-#define DRS_0101_RESOLUTION 0.325 // degrees/step
-#define DRS_0101_ZERO_POS 512 // steps
-
-#define DRS_0602_MIN_POS 10381 // steps
-#define DRS_0602_MAX_POS  22129 // steps
-#define DRS_0602_RESOLUTION 0.02778 // degrees/step
-#define DRS_0602_ZERO_POS 16384 // steps
-
-//typedef char u_char;
-
-void calculateChecksum(u_char *checksum_1, u_char *checksum_2,
-        u_char *packet_size,
-        u_char servo_id, u_char command,
-        std::vector<u_char> data)
+void Herkulex::Servo::reboot()
 {
-	u_char checksum_tmp = 0;
+	std::vector<u_char> packet = interface->makeCommandPacket(id, REBOOT, std::vector<u_char>(0));
+	boost::asio::write(*(interface->port), boost::asio::buffer(packet));
+}
 
-	*packet_size = (u_char) 7 + (u_char) data.size();
-	checksum_tmp = *packet_size ^ servo_id ^ command;
-	for (int i = 0; i < data.size(); i++)
-	{
-		checksum_tmp = checksum_tmp ^ data[i];
+Herkulex::Interface::Interface(std::string portName, int BAUD)
+{
+	try{
+		port = new boost::asio::serial_port(io, portName);
+		port->set_option(boost::asio::serial_port_base::baud_rate(BAUD));
 	}
-	*checksum_1 = (checksum_tmp) & (u_char) 0xFE;
-	*checksum_2 = (~*checksum_1) & (u_char) 0xFE;
-	//std::cout << "Checksum 1: " << (int) 0x30 << ", calculated: " << (int) checksum_1 << std::endl;
-	//std::cout << "Checksum 2: " << (int) 0xCE << ", calculated: " << (int) checksum_2 << std::endl;
-	return;
+	catch (boost::system::system_error e)
+	{
+		connectionError = "Failed to open port \"" + portName + "\" : " + std::string(e.what());
+		connected = false;
+		return;
+	}
+
+	detectServos();
+	if (servos.size() == 0)
+	{
+		connectionError = "Error : No herculex servos detected!";
+		connected = false;
+		port->close();
+		return;
+	}
+
+	// reboot all servos and wait for them to come up again
+	for (int s=0; s<servos.size(); ++s)
+		servos[s].reboot();
+	ros::Duration(1.0).sleep();
+
+	// default shutdown policy
+	shutdownPolicy = Slack;
+
+	connectionError = "Okay";
+	connected = true;
 }
 
-std::vector<u_char> makeCommandPacket(u_char servo_id,
-					   u_char command,
-                       std::vector<u_char> data)
+Herkulex::Interface::~Interface()
 {
-   std::vector<u_char> command_packet;
+	if (connected)
+	{
+		// Apply joint shutdown policy
+		u_char torqueMode;
+		if (shutdownPolicy == Brake)
+			torqueMode = TORQUE_CONTROL_BREAK_ON;
+		else
+			torqueMode = TORQUE_CONTROL_TORQUE_FREE;
 
-   u_char checksum_1;
-   u_char checksum_2;
-   u_char packet_size;
-   calculateChecksum(&checksum_1, &checksum_2, &packet_size, servo_id, command, data);
+		for (int s=0; s<servos.size(); ++s)
+		{
+			setTorqueMode(servos[s].id, torqueMode);
+			setLed(servos[s].id, LED_CONTROL_RED);
+		}
 
-   command_packet.push_back(0xFF);
-   command_packet.push_back(0xFF);
-   command_packet.push_back(packet_size);
-   command_packet.push_back(servo_id);
-   command_packet.push_back(command);
-   command_packet.push_back(checksum_1);
-   command_packet.push_back(checksum_2);
-
-   for (int i = 0; i < data.size(); i++) {
-      command_packet.push_back(data[i]);
-   }
-   return command_packet;
+		// close serial port
+		port->close();
+	}
 }
 
-/*std::vector<u_char> ramRead(u_char servo_id, std::vector<u_char> data) {
-   std::vector<u_char> packet, tmp;
-   packet = makeCommandPacket(servo_id, RAM_READ, data);
-
-   my_serial->flushInput();
-   my_serial->write(packet);
-   packet.clear();
-   my_serial->read(packet, 2);
-   if (packet.size() < 2) {
-      std::cout << "Not enough data received (" << packet.size() << " bytes received)" << std::endl;
-   }
-   else {
-      if (packet[0] == 0xFF && packet[1] == 0xFF) {
-         my_serial->read(tmp, 1);
-         response_len = tmp[0];
-
-         if (response_len > 0 && response_len < 15) {
-            packet.insert(packet.end(), tmp.begin(), tmp.end());
-            tmp.clear();
-            my_serial->read(tmp, response_len - 3);
-            packet.insert(packet.end(), tmp.begin(), tmp.end());
-         } else {
-            std::cout << "Can not get proper response" << std::endl;
-         }
-      }
-   }
-   return packet;
-}*/
-
-void ramWrite(u_char servo_id, std::vector<u_char> data)
+std::string Herkulex::Interface::getErrorString(u_char statusError, u_char statusDetail)
 {
-   // RAM_WRITE command - 0x03
-   std::vector<u_char> packet, tmp;
-   packet = makeCommandPacket(servo_id, RAM_WRITE, data);
+	if (statusError == 0)
+		return "okay";
+	else
+	{
+		std::string status = "";
 
-   //boost::asio::buffer commandBuffer(packet);
+		if (statusError & STATUS_ERROR_VOLTAGE_EXCEEDED)
+			status += "[Voltage Exceeded]";
+		if (statusError & STATUS_ERROR_RANGE_EXCEEDED)
+			status += "[Range Exceeded]";
+		if (statusError & STATUS_ERROR_TEMPERATURE_EXCEEDED)
+			status += "[Temp Exceeded]";
+		if (statusError & STATUS_ERROR_INVALID_PACKET)
+		{
+			status += "[Invalid Packet -> ";
+			if (statusDetail & STATUS_DETAIL_CHECKSUM_ERROR)
+				status += "Checksum Error]";
+			if (statusDetail & STATUS_DETAIL_UNKNOWN_COMMAND)
+				status += "Unknown Command]";
+			if (statusDetail & STATUS_DETAIL_EXCEEDED_REG_RANGE)
+				status += "Exceeded Register Range]";
+			if (statusDetail & STATUS_DETAIL_GARBAGE_DETECTED)
+				status += "Garbage Detected]";
 
-   printf("Command packet was :\n");
-   for (int b=0; b<packet.size(); ++b)
-	   printf("%2d - [0x%02X] %d\n", b, packet[b], packet[b]);
+		}
+		if (statusError & STATUS_ERROR_OVERLOAD_DETECTED)
+			status += "[Overload]";
+		if (statusError & STATUS_ERROR_EEG_REGISTER_DISTORTED)
+			status += "[EEG Reg Distorted]";
 
-   printf("Writing command to port\n"); fflush(stdout);
+		return status;
+	}
+}
+
+std::string Herkulex::Interface::getDetailString(u_char statusDetail)
+{
+	std::string status = "";
+
+	if (statusDetail & STATUS_DETAIL_MOVING)
+		status += "[moving]";
+	else
+		status += "        ";
+	if (statusDetail & STATUS_DETAIL_IN_POSITION)
+		status += "[in position]";
+	else
+		status += "             ";
+	if (statusDetail & STATUS_DETAIL_TORQUE_ON)
+		status += "[torque on ]";
+	else
+		status += "[torque off]";
+
+	return status;
+}
+
+// Helper functions
+std::vector<u_char> Herkulex::Interface::assembleBytes(u_char b1, u_char b2)
+{
+	std::vector<u_char> vect;
+	vect.push_back(b1);
+	vect.push_back(b2);
+	return vect;
+}
+std::vector<u_char> Herkulex::Interface::assembleBytes(u_char b1, u_char b2, u_char b3)
+{
+	std::vector<u_char> vect;
+	vect.push_back(b1);
+	vect.push_back(b2);
+	vect.push_back(b3);
+	return vect;
+}
+
+// Methods encapsulating the equations to convert radians to and from raw angle values
+// This also limits the radians to raw calculation to within the safe range
+// This should also do something cleverer in the future where the model of the servo is
+// use to automatically determine the equation.
+short Herkulex::Interface::radiansToRaw(u_char servoId, float radians)
+{
+	Herkulex::Servo *servo = getServoById(servoId);
+
+	// limit radians value to safe range for this servo
+	if (radians < servo->angleMin)
+		radians = servo->angleMin;
+	if (radians > servo->angleMax)
+		radians = servo->angleMax;
+
+	float angleDegrees = (radians / 3.141592654) * 180;
+	angleDegrees += 180;	// change range from 0 <-> 360 to -180 <-> +180  (Fault in data sheet)
+	short rawPosition = (angleDegrees / 0.02778) + 9903;
+	return rawPosition;
+}
+float Herkulex::Interface::rawToRadians(u_char servoId, short raw)
+{
+	float angleDeg = ((float)raw - 9903) * 0.02778;
+	angleDeg -= 180;	// change range from 0 <-> 360 to -180 <-> +180  (Fault in data sheet)
+	float angleRads = (angleDeg / 180) * 3.141592654;
+	return angleRads;
+}
+
+std::vector<u_char> Herkulex::Interface::makeCommandPacket(u_char servoId, u_char command, std::vector<u_char> data)
+{
+	u_char packetSize = 7 + data.size();
+	u_char checksum1 = packetSize ^ servoId ^ command;
+
+	for (int i = 0; i < data.size(); i++)
+		checksum1 ^= data[i];
+
+	checksum1 &= 0xFE;
+	u_char checksum2 = (~checksum1) & 0xFE;
+
+	std::vector<u_char> commandPacket(2, 0xFF);
+	commandPacket.push_back(packetSize);
+	commandPacket.push_back(servoId);
+	commandPacket.push_back(command);
+	commandPacket.push_back(checksum1);
+	commandPacket.push_back(checksum2);
+
+	commandPacket.insert(commandPacket.end(), data.begin(), data.end());
+
+	return commandPacket;
+}
+
+/** Method to read an acknowledgement response from the port.
+ *
+ * This is quite basic for now. But will need to be extended
+ * to verify the header, checksums and CMD are correct
+ */
+std::vector<u_char> Herkulex::Interface::getAckResponseFull(u_char cmd, int timeout)
+{
+	// read return packet using blocking timeout reads
+	blockingReader reader(*port, timeout);
+
+	std::vector<u_char> response;
+	int bytesToRead = 3;
+	bool timedout = false;
+	for (int b=0; b<bytesToRead; ++b)
+	{
+	   char byte;
+	   if (!reader.readChar(byte))
+	   {
+		   timedout = true;
+		   break;
+	   }
+	   response.push_back(byte);
+
+	   // if this was the third byte, it is the length so update the bytes to read
+	   if (b == 2)
+		   bytesToRead = byte;
+   }
+
+   if (timedout)
+   {
+	   return std::vector<u_char>(0);
+   }
+
+   return response;
+}
+
+std::vector<u_char> Herkulex::Interface::getAckResponse(u_char cmd, int timeout)
+{
+	std::vector<u_char> response = getAckResponseFull(cmd, timeout);
+
+	if (response.size() <= 7)
+		return std::vector<u_char>(0);
+
+	// split out the actual response (including error and detail status bytes)
+	std::vector<u_char> returnedData;
+	returnedData.insert(returnedData.begin(), response.begin()+7, response.end());
+	return returnedData;
+}
+
+std::vector<u_char> Herkulex::Interface::ramRead(u_char servoId, u_char addr, u_char length)
+{
+	std::vector<u_char> data = assembleBytes(addr, length);
+	std::vector<u_char> packet = makeCommandPacket(servoId, RAM_READ, data);
+
+	boost::asio::write(*port, boost::asio::buffer(packet));
+	std::vector<u_char> response = getAckResponse(RAM_READ);
+
+	// if valid response data was not returned.
+	if (response.size() < 3)
+		return std::vector<u_char>(0);
+
+	// split out the actual returned data
+   std::vector<u_char> returnedData;
+   returnedData.insert(returnedData.begin(), response.begin()+2, response.end());
+   return returnedData;
+}
+
+void Herkulex::Interface::ramWrite(u_char servoId, std::vector<u_char> data)
+{
+   std::vector<u_char> packet = makeCommandPacket(servoId, RAM_WRITE, data);
    boost::asio::write(*port, boost::asio::buffer(packet));
-
-   printf("Done.\n"); fflush(stdout);
-
-   //std::vector<u_char> response(2);
-   //boost::asio::read(*port, boost::asio::buffer(response, 2));
-
-   //printf("Command response was [0x%02X, 0x%02X]\n", response[0], response[1]); fflush(stdout);
-
-   /*my_serial->flushInput();
-   my_serial->write(packet);
-   packet.clear();
-   my_serial->read(packet, 2);
-   if (packet.size() < 2) {
-      std::cout << "Not enugh data received (" << packet.size() << " bytes received)" << std::endl;
-   } else {
-      if (packet[0] == 0xFF && packet[1] == 0xFF) {
-         //std::cout << "Header OK... ";
-         my_serial->read(tmp, 1);
-         response_len = tmp[0];
-         if (response_len > 0 && response_len < 15) {
-            packet.insert(packet.end(), tmp.begin(), tmp.end());
-            tmp.clear();
-            my_serial->read(tmp, response_len - 3);
-            packet.insert(packet.end(), tmp.begin(), tmp.end());
-         } else {
-            std::cout << "Can not get proper response" << std::endl;
-         }
-      }
-   }
-   return;*/
-}
-
-std::vector<u_char> responseData(256);
-
-void handler(
-	const boost::system::error_code& error, // Result of operation.
-	std::size_t bytes_transferred           // Number of bytes read.
-)
-{
-	std::cout << "read complete : " << error << "bytes transferred : " << bytes_transferred;
-
-	printf("Command response was :\n");
-	for (int d=0; d<bytes_transferred; ++d)
-		printf("%2d - [0x%02X] %d\n", d, responseData[d], responseData[d]);
 }
 
 /// Method to read EEP registers. returns len bytes starting at addr
-std::vector<u_char> eepRead(u_char servo_id, u_char addr, u_char len)
+std::vector<u_char> Herkulex::Interface::eepReadFull(u_char servo_id, u_char addr, u_char len, int timeout)
 {
-	// EEP_READ command - 0x02
-	std::vector<u_char> data;
-	data.push_back(addr);
-	data.push_back(len);
-	std::vector<u_char> packet, tmp;
-	packet = makeCommandPacket(servo_id, EEP_READ, data);
+	std::vector<u_char> data = assembleBytes(addr, len);
+	std::vector<u_char> packet = makeCommandPacket(servo_id, EEP_READ, data);
 
-	printf("Command packet was :\n");
-	for (int b=0; b<packet.size(); ++b)
-		printf("%2d - [0x%02X] %d\n", b, packet[b], packet[b]);
-
-	printf("Writing command to port\n"); fflush(stdout);
 	boost::asio::write(*port, boost::asio::buffer(packet));
-
-	printf("Done.\n"); fflush(stdout);
-
-	// expect 11 + len bytes in response
-
-	std::vector<u_char> response(11+len);
-	boost::system::error_code ec;
-
-	printf("about to read.\n"); fflush(stdout);
-
-	int bytes_read = port->read_some(boost::asio::buffer(response, 11+len),ec);
-
-	//port->async_read_some(boost::asio::buffer(responseData, 3), handler);
-
-	printf("sent async read.\n"); fflush(stdout);
-
-	for (int d=0; d<bytes_read; ++d)
-		printf("%2d - [0x%02X] %d\n", d, response[d], response[d]);
-
-	return response;
+	return getAckResponseFull(EEP_READ, timeout);
 }
 
-void setLed(u_char servoId, u_char ledState)
+/// Method to read EEP registers. returns len bytes starting at addr
+std::vector<u_char> Herkulex::Interface::eepRead(u_char servo_id, u_char addr, u_char len, int timeout)
 {
-   std::vector<u_char> data;
-   data.push_back(LED_CONTROL_RAM_ADDR);
-   data.push_back(0x01);
-   data.push_back(ledState);
+	std::vector<u_char> data = assembleBytes(addr, len);
+	std::vector<u_char> packet = makeCommandPacket(servo_id, EEP_READ, data);
+
+	boost::asio::write(*port, boost::asio::buffer(packet));
+	return getAckResponse(EEP_READ, timeout);
+}
+
+void Herkulex::Interface::setLed(u_char servoId, u_char ledState)
+{
+   std::vector<u_char> data = assembleBytes(LED_CONTROL_RAM_ADDR, 1, ledState);
    ramWrite(servoId, data);
 }
 
-void setTorqueMode(u_char servoId, u_char torqueMode)
+void Herkulex::Interface::setTorqueMode(u_char servoId, u_char torqueMode)
 {
-   std::vector<u_char> data;
-   data.push_back(TORQUE_CONTROL_RAM_ADDR);
-   data.push_back(0x01);
-   data.push_back(torqueMode);
+   std::vector<u_char> data = assembleBytes(TORQUE_CONTROL_RAM_ADDR, 1, torqueMode);
    ramWrite(servoId, data);
+}
+
+/** Method to detect all servos connected to the string
+ *
+ * Returns a std::vector of structures containing the
+ * servoId, type and firmware version string
+ */
+void Herkulex::Interface::detectServos()
+{
+	// attempt to read model and version info for every servo from 0 - 253
+	// 254 is the broadcast addr and 255 is reserved
+	for (int s=0; s<=253; ++s)
+	{
+		std::vector<u_char> data = eepReadFull(s, 0, 4, 1);
+
+		//ROS_WARN("eepRead returned %d bytes", (int)data.size());
+
+		if (data.size() >= 13)
+		{
+			char typeString[20];
+			sprintf(typeString, "DSR-%d%d%d%d",
+					data[9] >> 4,
+					data[9] & 0xF,
+					data[10] >> 4,
+					data[10] & 0xF);
+
+			char versionString[30];
+			sprintf(versionString, "version %d.%d",
+					data[11],
+					data[12]);
+
+			Servo servo(data[3], std::string(typeString), std::string(versionString), this);
+			servos.push_back(servo);
+		}
+	}
+
+	// some responses may still be in the serial buffer so try and
+	// read them for 0.1 seconds more.
+	ros::Time start = ros::Time::now();
+	ros::Duration listenTime = ros::Duration(0.1);
+	while (ros::Time::now() < start + listenTime)
+	{
+		std::vector<u_char> data = getAckResponseFull(EEP_READ, 10);
+
+		if (data.size() > 13)
+		{
+			char typeString[20];
+			sprintf(typeString, "DSR-%d%d%d%d",
+					data[9] >> 4,
+					data[9] & 0xF,
+					data[10] >> 4,
+					data[10] & 0xF);
+
+			char versionString[30];
+			sprintf(versionString, "version %d.%d",
+					data[11],
+					data[12]);
+
+			Servo servo(data[3], std::string(typeString), std::string(versionString), this);
+			servos.push_back(servo);
+		}
+	}
+}
+
+/*struct ServoPowerStatus
+{
+	float voltageVolts;
+	int tempDegrees;
+};*/
+
+Herkulex::ServoPowerStatus Herkulex::Interface::getServoPowerStatus(u_char servoId)
+{
+	Herkulex::ServoPowerStatus status;
+
+	std::vector<u_char> data = ramRead(servoId, 54, 2);
+
+	if (data.size() == 0)
+	{
+		status.voltageVolts = std::numeric_limits<float>::quiet_NaN();
+		status.tempDegrees = -1;
+	}
+	else
+	{
+		status.voltageVolts = data[0] / 10.0;
+
+		// decode binary coded decimal of temperature.
+		status.tempDegrees = (data[1] & 0x0f) + 10 * (data[1] >> 4);
+	}
+
+	return status;
+}
+
+Herkulex::ServoJointStatus Herkulex::Interface::getJointState(u_char servoId)
+{
+	ServoJointStatus status;
+
+	// get servo joint information
+	std::vector<u_char> data = ramRead(servoId, 58, 10);
+
+	if (data.size() == 12)
+		status.known = true;
+	else
+	{
+		status.known = false;
+		return status;
+	}
+
+	status.error = data[10];
+	status.detail = data[11];
+
+	unsigned int calibrationPositionRaw = 0;
+	calibrationPositionRaw |= data[0];
+	calibrationPositionRaw |= ((unsigned int)data[1] << 8);
+	float calibrationAngleDeg = ((float)calibrationPositionRaw - 9903) * 0.02778;
+
+	// extract joint position
+	short positionRaw = 0;
+	positionRaw |= data[2];
+	positionRaw |= ((unsigned int)data[3] << 8);
+	status.angleRads = rawToRadians(servoId, positionRaw);
+
+	// extract joint speed
+	short speedRaw = 0;
+	speedRaw |= data[4];
+	speedRaw |= ((short)data[5] << 8);
+	float speedDegPerSec = speedRaw * 0.62;
+	status.velocityRadsPerSec = (speedDegPerSec / 180) * 3.141592654;
+
+	// extract joint torque (units unknown and observed values don't make much sense!)
+	unsigned int torqueRaw = 0;
+	torqueRaw |= data[8];
+	torqueRaw |= ((unsigned int)data[9] << 8);
+	status.torqueNm = torqueRaw;
+
+	return status;
+}
+
+std::vector<Herkulex::ServoJointStatus> Herkulex::Interface::getJointStates()
+{
+	std::vector<Herkulex::ServoJointStatus> jointStates;
+
+	for (int s=0; s<servos.size(); ++s)
+		jointStates.push_back(getJointState(servos[s].id));
+
+	return jointStates;
 }
 
 // create an S_JOG packet from the given servoId, time (seconds), angle(degrees) and led status mask
-std::vector<u_char> makeSJOGPacket(u_char servoId, float time, float angle, u_char ledStatus)
+std::vector<u_char> Herkulex::Interface::makeSJOGPacket(Herkulex::TrajectoryPoint position, u_char ledStatus)
 {
 	std::vector<u_char> packet;
 
-	unsigned int timeOffset = time / 0.0112;
+	unsigned int timeOffset = position.timeFromStartSecs / 0.0112;
 	if (timeOffset >= 256)
 		printf("Warning: time beyond %f second limit!\n", 255 * 0.0112); fflush(stdout);
 	packet.push_back(timeOffset & 0xff);
 
-	unsigned int rawPosition = (angle / 0.02778) + 9903;
+	short rawPosition = radiansToRaw(position.servoId, position.angle);
 	packet.push_back(rawPosition & 0xff);
 	packet.push_back((rawPosition >> 8) & 0xff);
+
+	printf("Make SJOG packet, angle [%f radians] rawPosition [%d] [0x%02X 0x%02X]\n",
+			position.angle,
+		    rawPosition,
+		    packet[1],
+		    packet[2]);
 
 	// create an options byte for a position jog command with VOR
 	u_char options = 0x00 | ((ledStatus & 0x07) << 2);
 	packet.push_back(options);
 
-	packet.push_back(servoId);
+	packet.push_back(position.servoId);
 
 	return packet;
 }
 
-void S_JOGCommand(u_char servoId, std::vector<u_char> packets)
+void Herkulex::Interface::S_JOGCommand(u_char servoId, std::vector<u_char> packets)
 {
 	std::vector<u_char> packet = makeCommandPacket(servoId, S_JOG, packets);
 
 	boost::asio::write(*port, boost::asio::buffer(packet));
 }
 
-void demoJOG(u_char servoId)
+Herkulex::Servo *Herkulex::Interface::getServoById(u_char servoId)
 {
-	std::vector<u_char> data;
-	data.push_back(0x3C);
-	data.push_back(0x00);
-	data.push_back(0x02);
-	data.push_back(0x04);
-	data.push_back(servoId);
+	for (int s=0; s<servos.size(); ++s)
+		if (servos[s].id == servoId)
+			return &(servos[s]);
 
-	std::vector<u_char> packet = makeCommandPacket(servoId, S_JOG, data);
-
-	boost::asio::write(*port, boost::asio::buffer(packet));
+	return NULL;
 }
 
-int main(int argc, char **argv)
+bool Herkulex::Interface::jogServo(Herkulex::TrajectoryPoint position)
 {
-	ROS_INFO("--[ Herkulex Test Node ]--");
+	std::vector<u_char> jogPacket = makeSJOGPacket(position, LED_CONTROL_BLUE);
+	S_JOGCommand(position.servoId, jogPacket);
 
-	// setup ros for this node and get handle to ros system
-	ros::init(argc, argv, "Herkulex_test");
-	ros::start();
-
-	std::string portName;
-	ros::NodeHandle n("~");
-
-	boost::asio::io_service io;
-
-	n.param<std::string>("herkulex_port", portName, "/dev/ttyUSB0");
-
-	ROS_INFO("connecting to Herkulex servo string on port \"%s\"", portName.c_str());
-	try{
-		port = new boost::asio::serial_port(io, portName);
-		port->set_option(boost::asio::serial_port_base::baud_rate(115200));
-	}
-	catch (boost::system::system_error e)
-	{
-		ROS_ERROR("Failed to open port \"%s\" : %s", portName.c_str(), e.what());
-	}
-
-    ROS_INFO("--[ Herkulex Test Node: startup complete ]--");
-
-    int servoId = 219;
-    //for (int s=0; s<254; ++s)
-    //{
-    	printf("testing servo [%d]\n", servoId); fflush(stdout);
-    	setLed(servoId, LED_CONTROL_BLUE);
-    	eepRead(servoId, 0, 4);
-    //}
-
-    setTorqueMode(servoId, TORQUE_CONTROL_TORQUE_ON);
-
-	boost::thread service_thread;
-	service_thread = boost::thread(boost::bind(&boost::asio::io_service::run, &io ));
-
-    ros::Rate loopRate(0.3);
-    while(ros::ok())
-    {
-
-    	std::vector<u_char> jogPackets;
-    	std::vector<u_char> tmp = makeSJOGPacket(219, 0.0, 45, LED_CONTROL_BLUE);
-    	jogPackets.insert(jogPackets.end(), tmp.begin(), tmp.end());
-    	tmp = makeSJOGPacket(219, 1.0, -45, LED_CONTROL_GREEN);
-    	jogPackets.insert(jogPackets.end(), tmp.begin(), tmp.end());
-
-    	S_JOGCommand(219, jogPackets);
-
-    	//demoJOG(219);
-
-    	ros::spinOnce();
-    	loopRate.sleep();
-
-    	ROS_WARN("Main Loop");
-    }
-
-	printf("--[ Herkulex Test Node: shutdown OK ]--\n");
-	return 0;
+	return true;
 }
+
+

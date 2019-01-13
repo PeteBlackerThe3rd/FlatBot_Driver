@@ -14,8 +14,6 @@ driver_node.cpp
 //#include <time.h>  // used for measuring CPU time of various algorithms
 //#include <sys/times.h>
 
-
-
 // constructor
 FlatBotDriver::FlatBotDriver() :
 			trajectoryActionServer(n,
