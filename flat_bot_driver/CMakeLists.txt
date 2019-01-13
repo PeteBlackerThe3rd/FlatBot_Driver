@@ -20,7 +20,7 @@ find_package(catkin REQUIRED
 			 message_generation)
 
 ## System dependencies are found with CMake's conventions
-find_package(Boost REQUIRED COMPONENTS system)
+find_package(Boost REQUIRED COMPONENTS thread system)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -157,6 +157,10 @@ include_directories( ${catkin_INCLUDE_DIRS} )
 add_executable(driver_node src/driver_node.cpp)
 add_dependencies(driver_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(driver_node  ${catkin_LIBRARIES} )
+
+add_executable(driver_test src/herkulex_interface.cpp)
+add_dependencies(driver_test ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(driver_test  ${catkin_LIBRARIES} )
 
 # FlatBot GUI controller node
 

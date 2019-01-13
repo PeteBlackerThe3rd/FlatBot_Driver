@@ -46,12 +46,13 @@ public:
 		name="Warning_name_not_set";
 		loadedOkay = false;
 		hasVisualModel = false;
+		hasCollisionModel = false;
 		isRobotConnection = false;
 	};
 	~ModuleType()
 	{
-		if (hasCollisionModel)
-			delete collisionMesh;
+		//if (hasCollisionModel)
+		//	delete collisionMesh;
 	}
 	ModuleType(std::string typeName, std::string URDFString);
 
@@ -85,12 +86,13 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 {
 	name = typeName;
 	isRobotConnection = false;
+	hasVisualModel = false;
+	hasCollisionModel = false;
 
 	if (!urdf.initString(URDFString.c_str()))
 	{
 		ROS_ERROR("Failed to parse urdf string for module type [%s]", typeName.c_str());
 		loadedOkay = false;
-		hasVisualModel = false;
 	}
 	else
 	{
@@ -126,6 +128,26 @@ ModuleType::ModuleType(std::string typeName, std::string URDFString)
 
 			ROS_INFO("Reading module collision filename of [%s]", collisionFileName.c_str());
 			collisionMesh = shapes::createMeshFromResource(collisionFileName);
+			ROS_INFO("Loaded a mesh with %d vertices and %d triangles.", collisionMesh->vertex_count, collisionMesh->triangle_count);
+
+			if (collisionMesh->type == shapes::ShapeType::MESH)
+				ROS_INFO("CollisionMesh.type is MESH okay.");
+			else
+			{
+				std::string type = "";
+				switch(collisionMesh->type)
+				{
+					case shapes::ShapeType::SPHERE: type = "sphere"; break;
+					case shapes::ShapeType::CYLINDER: type = "cylinder"; break;
+					case shapes::ShapeType::CONE: type = "cone"; break;
+					case shapes::ShapeType::BOX: type = "box"; break;
+					case shapes::ShapeType::PLANE: type = "plane"; break;
+					case shapes::ShapeType::OCTREE: type = "octree"; break;
+					case shapes::ShapeType::UNKNOWN_SHAPE: type = "unknown"; break;
+					default: type = "undefined";
+				}
+				ROS_INFO("CollisionMesh type is \"%s\"", type.c_str());
+			}
 		}
 		else
 		{
@@ -220,6 +242,7 @@ public:
 		name = "arm";
 		loadedOkay = true;
 		hasVisualModel = false;
+		hasCollisionModel = false;
 		isRobotConnection = true;
 
 		// create a single 180 degree rotation connection to link the arm_base_link_frame to the connector
@@ -371,7 +394,7 @@ public:
 		loadedModuleTypes.emplace("arm", ModuleTypeArm());
 
 		// if a planning scene was given then attach to it
-		planningSceneAttached = (planningScene != "None");
+		planningSceneAttached = true;//(planningScene != "None");
 		if (planningSceneAttached)
 			planning_scene_diff_pub = n.advertise<moveit_msgs::PlanningScene>("planning_scene", 1);
 	};
@@ -685,7 +708,11 @@ void ModuleManager::updateMoveitCollisionScene(bool first)
 	{
 		// if this module doesn't have a collision model then skip it
 		if (!modules[m].type->hasCollisionModel)
+		{
 			continue;
+		}
+
+		//ROS_WARN("Adding collision mesh for module \"%s\"", modules[m].id.c_str());
 
 		moveit_msgs::AttachedCollisionObject attachedModule;
 		attachedModule.link_name = "r_wrist_roll_link";  // <---      TODO
@@ -714,6 +741,9 @@ void ModuleManager::updateMoveitCollisionScene(bool first)
 		// add this object diff to the update message
 		planningSceneUpdate.world.collision_objects.push_back(attachedModule.object);
 	}
+
+	// send the planning scene update to the move group
+	planning_scene_diff_pub.publish(planningSceneUpdate);
 }
 
 bool ModuleManager::ensureModuleTypeIsLoaded(std::string type)
@@ -873,12 +903,20 @@ int main (int argc, char **argv)
 
 	ros::Rate mainRate(10.0);
 
+	int i=0;
+
 	while(ros::ok())
 	{
 		modman.publishTFs();
 		modman.publishModuleMarkers();
 
 		mainRate.sleep();
+
+		if (i++ % 50 == 0)
+		{
+			ROS_WARN("Updating moveit collision scene for the hell of it!");
+			modman.updateMoveitCollisionScene();
+		}
 	}
 
 	return 0;
