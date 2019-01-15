@@ -1,0 +1,7 @@
+float64 maxAngle
+float64 minAngle
+float64 minPanAngle
+float64 maxPanAngle
+float64 spatialResolution
+---
+bool startedOk

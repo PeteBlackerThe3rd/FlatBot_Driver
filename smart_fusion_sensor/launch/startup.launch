@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<launch>
+
+  <!-- ####### Sensor and Actuator driver nodes ####### -->
+  
+  <node name="tilt_driver" pkg="flat_bot_driver" type="driver_test" output="screen">
+    <param name="joint_name" type="string" value="tilt_joint" />
+  </node>
+  
+  <!-- Load universal robot description format (URDF) -->
+  <param name="robot_description" command="xacro --inorder  '$(find smart_fusion_sensor)/urdf/sensor.xacro'"/>
+  
+  <!-- joint_state_controller, generates TFs from URDF and joint status topic -->
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="rob_st_pub" >
+    <remap from="joint_states" to="tilt_driver/joint_states" />
+  </node>
+  
+  <!--rosparam file="$(find smart_fusion_sensor)/cfg/joint_state_controller.yaml" command="load"/>
+  <node name="joint_state_controller_spawner" pkg="controller_manager" type="controller_manager" args="spawn joint_state_controller" respawn="false" output="screen"/-->
+     
+  <!-- Hokuyo LIDAR Driver (using the URG protocol) -->
+  <!--node pkg="urg_node" type="urg_node" name="Hokuyo_UXM_30LXH_EWA_driver" args="_ip_address:=192.168.0.10">
+    <param name="angle_min" type="double" value="-0.785" />
+    <param name="angle_max" type="double" value="0.785">
+  </node-->
+
+  <!-- ####### Navigation Processing nodes ####### -->
+  <!--include file="$(find smart_fusion_sensor)/launch/scan.launch" /-->
+
+  <!-- Launch the control interface if requested -->
+  <arg name="start_interface" default="no" />
+  <group if="$(eval (start_interface == 'yes') )">
+    <include file="$(find smart_fusion_sensor)/launch/startup_control.launch" />
+  </group>
+</launch>

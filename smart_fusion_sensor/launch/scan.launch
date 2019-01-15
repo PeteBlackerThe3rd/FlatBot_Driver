@@ -1,0 +1,13 @@
+<launch>
+  <node pkg="smart_fusion_sensor" type="fusion_sensor" name="smart_2_fusion_sensor">
+    <param name="camera_topic" type="string" value="/left_zed_camera" />
+    <param name="lidar_topic" type="string" value="/most_intense" />
+    <param name="sensor_frame_id" type="string" value="sensor_frame" />
+    <param name="body_frame_id" type="string" value="body_frame" />
+    <param name="progress_cloud_topic" type="string" value="/progress_points" />
+    <param name="pan_tilt_base_topic" type="string" value="/pan_tilt_driver" />
+    <param name="lidar_frame_id" type="string" value="laser" />
+    <param name="config_file" type="string" value="$(find smart_fusion_sensor)/cfg/smart_2_sensor_calibration.csv" />
+    <param name="scan_save_path" type="string" value="/home/smart2/scan_data" />
+  </node>
+</launch>

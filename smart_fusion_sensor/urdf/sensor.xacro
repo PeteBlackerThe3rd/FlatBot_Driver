@@ -1,0 +1,5 @@
+<?xml version="1.0" ?>
+<robot name="fusion_sensor" xmlns:xacro="http://wiki.ros.org/xacro">
+  <xacro:include filename="$(find smart_fusion_sensor)/urdf/sensor_macro.xacro"/>
+  <xacro:fusion_sensor prefix=""/>
+</robot>

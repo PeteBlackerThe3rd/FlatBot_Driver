@@ -391,6 +391,16 @@ Herkulex::ServoPowerStatus Herkulex::Interface::getServoPowerStatus(u_char servo
 	return status;
 }
 
+std::vector<Herkulex::ServoPowerStatus> Herkulex::Interface::getServoPowerStatuses()
+{
+	std::vector<Herkulex::ServoPowerStatus> statuses;
+
+	for (int s=0; s<servos.size(); ++s)
+		statuses.push_back(getServoPowerStatus(servos[s].id));
+
+	return statuses;
+}
+
 Herkulex::ServoJointStatus Herkulex::Interface::getJointState(u_char servoId)
 {
 	ServoJointStatus status;

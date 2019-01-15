@@ -1,0 +1,4 @@
+<launch>
+  <!--node pkg="rqt_gui" type="rqt_gui" name="service_caller" /-->
+  <node pkg="rviz" type="rviz" name="rviz" args="-d $(find smart_fusion_sensor)/rviz/fusion_viewer.rviz" required="true" />
+</launch>

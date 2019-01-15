@@ -1,0 +1,36 @@
+## USB port
+#port: /dev/RAZOR_IMU_01
+
+##### Calibration ####
+### accelerometer
+accel_x_min: -290.0
+accel_x_max: 318.0
+accel_y_min: -281.0
+accel_y_max: 310.0
+accel_z_min: -316.0
+accel_z_max: 215.0
+
+### magnetometer
+# standard calibration
+magn_x_min: -455.0
+magn_x_max: 777.0
+magn_y_min: -610.0
+magn_y_max: 655.0
+magn_z_min: -608.0
+magn_z_max: 669.0
+
+# extended calibration
+calibration_magn_use_extended: false
+magn_ellipsoid_center: [162.736, 10.2900, 46.8069]
+magn_ellipsoid_transform: [[0.977269, 0.0244491, -0.0528580], [0.0244491, 0.968157, 0.0551663], [-0.0528580, 0.0551663, 0.876572]]
+#define CALIBRATION__MAGN_USE_EXTENDED true
+#const float magn_ellipsoid_center[3] = {162.736, 10.2900, 46.8069};
+#const float magn_ellipsoid_transform[3][3] = {{0.977269, 0.0244491, -0.0528580}, {0.0244491, 0.968157, 0.0551663}, {-0.0528580, 0.0551663, 0.876572}};
+
+# AHRS to robot calibration
+imu_yaw_calibration: 0.0
+
+### gyroscope
+gyro_average_offset_x: -39.82
+gyro_average_offset_y: -3.35
+gyro_average_offset_z: 27.33

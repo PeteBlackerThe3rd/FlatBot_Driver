@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <xacro:macro name="fusion_sensor" params="prefix">
+  
+    <!-- links: main serial chain -->
+    <link name="${prefix}mounting">
+    </link>
+    
+    <link name="${prefix}sensor_frame">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://smart_fusion_sensor/meshes/sensor_frame.stl" />
+        </geometry>
+      </visual>
+      <!--inertial>
+        <mass value="0.537"/>\n
+        <origin xyz="0.125 0 0.029919" rpy="0 0 0" />
+        <inertia
+          ixx="0.000202697" ixy="0.0" ixz="0.0"
+          iyy="0.003563004" iyz="0.0"
+          izz="0.003438567" />
+      </inertial-->
+    </link>
+    
+    <link name="${prefix}tilt_platform">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://smart_fusion_sensor/meshes/tilt_platform.stl" />
+        </geometry>
+      </visual>
+      <!--inertial>
+        <mass value="0.659"/>
+        <origin xyz="0.100912 -0.000004 0.03578" rpy="0.000174532925199433 -0.0146607657167524 0" />
+        <inertia
+          ixx="0.000256681" ixy="0.0" ixz="0.0"
+          iyy="0.004570271" iyz="0.0"
+          izz="0.004633015" />
+      </inertial-->
+    </link>
+    
+    <link name="${prefix}camera_frame">
+    </link>
+    
+    <link name="${prefix}lidar_frame">
+    </link>
+
+    <!-- joints: main serial chain -->
+    <joint name="${prefix}mounting_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="${prefix}mounting"/>
+      <child link="${prefix}sensor_frame"/>
+    </joint>
+    
+    <joint name="${prefix}Joint_1" type="revolute">
+      <origin xyz="0.1265 -0.0385 0.1675" rpy="-1.57079 0 0"/>
+      <parent link="${prefix}sensor_frame"/>
+      <child link="${prefix}tilt_platform"/>
+      <axis xyz="-1 0 0"/>
+      <limit lower="-2.96706" upper="2.96706" effort="100" velocity="3.32"/>
+    </joint>
+    
+    <joint name="${prefix}camera_joint" type="fixed">
+      <origin xyz="-0.189 -0.01 0.02" rpy="1.57079 3.1416 0"/>
+      <parent link="${prefix}tilt_platform"/>
+      <child link="${prefix}camera_frame"/>
+    </joint>
+    
+    <joint name="${prefix}lidar_joint" type="fixed">
+      <origin xyz="-0.06 0 0" rpy="0 0 -1.57079"/>
+      <parent link="${prefix}tilt_platform"/>
+      <child link="${prefix}lidar_frame"/>
+    </joint>
+
+  </xacro:macro>
+</robot>

@@ -205,6 +205,7 @@ public:
 	std::vector<Herkulex::ServoJointStatus> getJointStates();
 
 	Herkulex::ServoPowerStatus getServoPowerStatus(u_char servoId);
+	std::vector<Herkulex::ServoPowerStatus> getServoPowerStatuses();
 
 	// Servo configuration methods
 	void setLed(u_char servoId, u_char ledState);
@@ -212,6 +213,8 @@ public:
 
 	static std::string getErrorString(u_char statusError, u_char statusDetail = 0);
 	static std::string getDetailString(u_char statusDetail);
+
+	std::vector<Herkulex::Servo> servos;
 
 private:
 	friend class Herkulex::Servo;
@@ -250,8 +253,6 @@ private:
 	boost::asio::serial_port *port;
 	bool connected;
 	std::string connectionError;
-
-	std::vector<Herkulex::Servo> servos;
 
 	Herkulex::ShutdownPolicy shutdownPolicy;
 };

@@ -7,6 +7,8 @@
 #include "ros/ros.h"
 #include "std_msgs/Float32.h"
 #include "sensor_msgs/JointState.h"
+#include "flat_bot_driver/JointState.h"
+
 //#include <actionlib/server/simple_action_server.h>
 //#include "moveit_msgs/ExecuteTrajectoryAction.h"
 
@@ -14,7 +16,9 @@
 
 Herkulex::Interface *hInterface;
 
-sensor_msgs::JointState getJointStateMsg(Herkulex::Interface *interface, std::vector<std::string> jointNames)
+sensor_msgs::JointState makeJointStateMsg(Herkulex::Interface *interface,
+										  std::vector<std::string> jointNames,
+										  std::vector<Herkulex::ServoJointStatus> joints)
 {
 	static int seqId = 0;
 
@@ -26,12 +30,44 @@ sensor_msgs::JointState getJointStateMsg(Herkulex::Interface *interface, std::ve
 
 	jointStateMsg.name = jointNames;
 
-	std::vector<Herkulex::ServoJointStatus> joints = interface->getJointStates();
+	for (int j=0; j<joints.size(); ++j)
+	{
+		jointStateMsg.position.push_back(joints[j].angleRads);
+		jointStateMsg.velocity.push_back(joints[j].velocityRadsPerSec);
+	}
+
+	return jointStateMsg;
+}
+
+flat_bot_driver::JointState makeHerkulexJointStateMsg(Herkulex::Interface *interface,
+													  std::vector<std::string> jointNames,
+													  std::vector<Herkulex::ServoJointStatus> joints,
+													  std::vector<Herkulex::ServoPowerStatus> jointStatuses)
+{
+	static int seqId = 0;
+
+	flat_bot_driver::JointState jointStateMsg;
+
+	jointStateMsg.header.seq = seqId++;
+	jointStateMsg.header.stamp = ros::Time::now();
+	jointStateMsg.header.frame_id = "";
+
+	jointStateMsg.name = jointNames;
 
 	for (int j=0; j<joints.size(); ++j)
 	{
 		jointStateMsg.position.push_back(joints[j].angleRads);
 		jointStateMsg.velocity.push_back(joints[j].velocityRadsPerSec);
+
+		jointStateMsg.servo_id.push_back(interface->servos[j].id);
+		jointStateMsg.type.push_back(interface->servos[j].type);
+		jointStateMsg.firmware.push_back(interface->servos[j].firmwareVersion);
+
+		jointStateMsg.voltage.push_back(jointStatuses[j].voltageVolts);
+		jointStateMsg.temperature.push_back(jointStatuses[j].tempDegrees);
+
+		short status = (short)joints[j].error | ((short)joints[j].detail << 8);
+		jointStateMsg.status.push_back(status);
 	}
 
 	return jointStateMsg;
@@ -56,15 +92,17 @@ int main(int argc, char **argv)
 	ros::start();
 
 	ros::NodeHandle n("~");
-	std::string portName, jointTopic, jointNamesParam;
+	std::string portName, jointTopic, herkulexJointTopic, jointNamesParam;
 	int BAUDRate, jointPublisherRate;
 	n.param<std::string>("herkulex_port", portName, "/dev/ttyUSB0");
 	n.param<int>("herkulex_baud", BAUDRate, 115200);
 	n.param<int>("joint_publish_rate", jointPublisherRate, 20);
 	n.param<std::string>("joint_state_topic", jointTopic, "joint_states");
+	n.param<std::string>("herkulex_joint_state_topic", herkulexJointTopic, "herkulex_joint_states");
 	n.param<std::string>("joint_names", jointNamesParam, "");
 
 	ros::Publisher jointPublisher = n.advertise<sensor_msgs::JointState>(jointTopic, 10);
+	ros::Publisher herkulexJointPublisher = n.advertise<flat_bot_driver::JointState>(herkulexJointTopic, 10);
 
 	ros::Subscriber sub = n.subscribe("/position", 10, positionCallback);
 
@@ -114,25 +152,43 @@ int main(int argc, char **argv)
     interface.setTorqueMode(servoId, TORQUE_CONTROL_TORQUE_ON);
 
     Herkulex::TrajectoryPoint test(servoId, 2.0, 3.141);
-    test.setDegrees(-95.0);
+    test.setDegrees(-90.0);
     interface.jogServo(test);
 
     ros::Rate loopRate(jointPublisherRate);
     int seq=0;
     while(ros::ok())
     {
-    	sensor_msgs::JointState jointStateMsg = getJointStateMsg(&interface, jointNames);
-    	jointPublisher.publish(jointStateMsg);
+    	bool gotJointStates = false;
+    	std::vector<Herkulex::ServoJointStatus> joints;
 
-    	/*seq = (seq++) % 20;
-    	if (seq == 0)
+    	if (jointPublisher.getNumSubscribers() > 0)
     	{
-    		Herkulex::ServoPowerStatus power = interface.getServoPowerStatus(servoId);
-    		ROS_INFO("Servo [%d] temp %d degrees, voltage %f v",
-    				 servoId,
-					 power.tempDegrees,
-					 power.voltageVolts);
-    	}*/
+    		joints = interface.getJointStates();
+    		gotJointStates = true;
+
+			sensor_msgs::JointState jointStateMsg = makeJointStateMsg(&interface,
+																	  jointNames,
+																	  joints);
+			jointPublisher.publish(jointStateMsg);
+    	}
+
+    	if (herkulexJointPublisher.getNumSubscribers() > 0)
+    	{
+    		if (!gotJointStates)
+    		{
+        		joints = interface.getJointStates();
+        		gotJointStates = true;
+    		}
+
+    		std::vector<Herkulex::ServoPowerStatus> jointStatuses = interface.getServoPowerStatuses();
+
+    		flat_bot_driver::JointState herkulexJointStateMsg = makeHerkulexJointStateMsg(&interface,
+																						  jointNames,
+																						  joints,
+																						  jointStatuses);
+    		herkulexJointPublisher.publish(herkulexJointStateMsg);
+    	}
 
     	ros::spinOnce();
     	loopRate.sleep();
